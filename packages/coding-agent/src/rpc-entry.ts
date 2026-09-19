@@ -5,7 +5,12 @@ import { main } from "./main.ts";
 
 process.title = `${APP_NAME}-rpc`;
 process.env.PI_CODING_AGENT = "true";
-process.env.AI_AGENT = "pi";
+if (APP_NAME !== "pi") {
+	process.env[`${APP_NAME.toUpperCase()}_CODING_AGENT`] = "true";
+	process.env.AI_AGENT = APP_NAME;
+} else {
+	process.env.AI_AGENT = "pi";
+}
 process.emitWarning = (() => {}) as typeof process.emitWarning;
 
 configureHttpDispatcher();
