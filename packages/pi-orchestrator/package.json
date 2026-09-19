@@ -4,6 +4,9 @@
   "description": "Multi-Agent AI Coding Orchestrator for Pi (Antigravity & Antigravity2)",
   "type": "module",
   "main": "./src/index.ts",
+  "bin": {
+    "pi-orchestrator": "./bin/pi-orchestrator.js"
+  },
   "keywords": [
     "pi-package",
     "pi-extension",
