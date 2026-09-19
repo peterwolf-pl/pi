@@ -4,10 +4,14 @@
  * Implements strict Git safety guidelines (no destructive resets or cleans).
  */
 
+import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { CONFIG_DIR_NAME } from "../config.ts";
-import { spawnProcessSync } from "../utils/child-process.ts";
+import { CONFIG_DIR_NAME } from "./config.ts";
+
+function spawnProcessSync(command: string, args: string[], options: any) {
+	return spawnSync(command, args, options);
+}
 
 export interface WorkerWorkspace {
 	taskId: string;

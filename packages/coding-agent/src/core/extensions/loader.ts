@@ -64,7 +64,6 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@earendil-works/pi-ai/oauth": _bundledPiAiOauth,
 	"@earendil-works/pi-ai/providers/all": _bundledPiAiProviders,
 	"@earendil-works/pi-coding-agent": _bundledPiCodingAgent,
-	pwpi: _bundledPiCodingAgent,
 	"@mariozechner/pi-agent-core": _bundledPiAgentCore,
 	"@mariozechner/pi-tui": _bundledPiTui,
 	"@mariozechner/pi-ai": _bundledPiAiCompat,
@@ -121,7 +120,6 @@ function getAliases(): Record<string, string> {
 
 	_aliases = {
 		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
-		pwpi: piCodingAgentEntry,
 		"@earendil-works/pi-agent-core": piAgentCoreEntry,
 		"@earendil-works/pi-tui": piTuiEntry,
 		"@earendil-works/pi-ai/providers/all": piAiProvidersEntry,

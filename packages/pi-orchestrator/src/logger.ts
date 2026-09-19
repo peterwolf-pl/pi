@@ -4,8 +4,13 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
+import { CONFIG_DIR_NAME } from "./config.ts";
+
+function getAgentDir(): string {
+	return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+}
 
 export interface LogEntry {
 	timestamp: string;

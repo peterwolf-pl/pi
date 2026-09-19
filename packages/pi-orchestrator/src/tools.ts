@@ -2,8 +2,8 @@
  * Custom tools for Master Agent (Antigravity) to orchestrate Worker Agent (Antigravity2).
  */
 
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
-import { defineTool, type ToolDefinition } from "../core/extensions/types.ts";
 import type { Orchestrator } from "./orchestrator.ts";
 
 export const ORCHESTRATOR_SYSTEM_PROMPT_GUIDELINES = [

@@ -1,0 +1,30 @@
+{
+  "name": "pi-antigravity-orchestrator",
+  "version": "1.0.0",
+  "description": "Multi-Agent AI Coding Orchestrator for Pi (Antigravity & Antigravity2)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "multi-agent",
+    "antigravity",
+    "orchestrator"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "dependencies": {
+    "chalk": "6.0.0",
+    "yaml": "2.9.0"
+  }
+}

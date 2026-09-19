@@ -3,12 +3,16 @@
  * Receives narrowly scoped tasks, operates in an isolated workspace, and returns structured results.
  */
 
-import { spawnProcessSync } from "../utils/child-process.ts";
+import { spawnSync } from "node:child_process";
 import { Agent } from "./agent.ts";
 import type { FileOwnershipManager } from "./file-ownership.ts";
 import type { OrchestratorLogger } from "./logger.ts";
 import type { TaskResult, TaskTestResult, WorkerTask } from "./types.ts";
 import type { WorkerWorkspace } from "./workspace.ts";
+
+function spawnProcessSync(command: string, args: string[], options: any) {
+	return spawnSync(command, args, options);
+}
 
 export interface WorkerExecutionOptions {
 	logger?: OrchestratorLogger;

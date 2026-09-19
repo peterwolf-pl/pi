@@ -434,8 +434,6 @@ export {
 	Theme,
 	type ThemeColor,
 } from "./modes/interactive/theme/theme.ts";
-// Multi-Agent Orchestrator
-export * from "./orchestrator/index.ts";
 // Clipboard utilities
 export { copyToClipboard } from "./utils/clipboard.ts";
 export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.ts";

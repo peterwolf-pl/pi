@@ -44,8 +44,7 @@ plans/
 collect.sh
 packages/agent/docs/extensions/pi-server-artifact/index.md
 
-# PWPI runtime files
-.pwpi/logs/
-.pwpi/worktrees/
-.pwpi/orchestrator-state.json
-.pwpi/agent/
+# Pi Multi-Agent Orchestrator runtime files
+.pi/logs/
+.pi/worktrees/
+.pi/orchestrator-state.json

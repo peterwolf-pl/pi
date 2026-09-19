@@ -5,8 +5,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_DIR_NAME } from "../config.ts";
-import { loadOrchestratorConfig } from "./config.ts";
+import { CONFIG_DIR_NAME, loadOrchestratorConfig } from "./config.ts";
 import { FileOwnershipManager } from "./file-ownership.ts";
 import { OrchestratorLogger } from "./logger.ts";
 import { MasterAgent } from "./master-agent.ts";

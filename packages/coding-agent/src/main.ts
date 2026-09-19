@@ -66,7 +66,6 @@ import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, setThemeJsonValidator, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { validateThemeJson } from "./modes/interactive/theme/theme-json.ts";
-import { handleOrchestratorCommand } from "./orchestrator/cli.ts";
 import { cleanupManagedInstall, handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
@@ -582,10 +581,6 @@ export async function main(args: string[], options?: MainOptions) {
 	const bootstrapSettingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 	applyHttpProxySettings(bootstrapSettingsManager.getGlobalSettings().httpProxy);
 	configureHttpDispatcher();
-
-	if (await handleOrchestratorCommand(args, { cwd, agentDir })) {
-		process.exit(process.exitCode ?? 0);
-	}
 
 	if (await handlePackageCommand(args, { extensionFactories })) {
 		const exitCode = process.exitCode ?? 0;

@@ -1,5 +1,5 @@
 /**
- * Automated test suite for PWPI Multi-Agent AI Coding Orchestrator.
+ * Automated test suite for Pi Antigravity Multi-Agent Orchestrator.
  * Tests cover all 12 core requirements + end-to-end workflow:
  * 1. master starts
  * 2. worker starts
@@ -12,22 +12,17 @@
  * 9. file ownership prevents conflicts
  * 10. worker diff can be reviewed
  * 11. worker changes are not automatically merged
- * 12. existing PWPI functionality remains intact
+ * 12. existing Pi functionality remains intact
  * 13. End-to-end multi-agent test
+ * 14. Git worktree isolation test
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	FileOwnershipManager,
-	Orchestrator,
-	renderDashboard,
-	WorkerAgent,
-	type WorkerTask,
-} from "../src/orchestrator/index.ts";
+import { FileOwnershipManager, Orchestrator, renderDashboard, WorkerAgent, type WorkerTask } from "../src/index.ts";
 
-describe("PWPI Multi-Agent AI Coding Orchestrator", () => {
+describe("Pi Antigravity Multi-Agent Orchestrator Extension", () => {
 	let testDir: string;
 	let orchestrator: Orchestrator;
 
@@ -169,7 +164,6 @@ describe("PWPI Multi-Agent AI Coding Orchestrator", () => {
 					signal.addEventListener("abort", () => {
 						reject(new Error("aborted"));
 					});
-					// intentionally never resolves before timeout
 				});
 			},
 		});
@@ -244,7 +238,7 @@ describe("PWPI Multi-Agent AI Coding Orchestrator", () => {
 		expect(readFileSync(targetFile, "utf-8")).toBe("Worker generated docs");
 	});
 
-	it("12. existing PWPI functionality and dashboard remain intact", () => {
+	it("12. existing Pi functionality and dashboard remain intact", () => {
 		orchestrator.setMainTask("Build Minecraft Mod");
 		const status = orchestrator.getStatus();
 		expect(status.mainTask?.title).toBe("Build Minecraft Mod");
@@ -308,16 +302,15 @@ describe("PWPI Multi-Agent AI Coding Orchestrator", () => {
 	});
 
 	it("14. Git worktree isolation: worker modifies file in isolated worktree and master integrates", async () => {
-		// Initialize git in testDir
-		const { spawnProcessSync } = await import("../src/utils/child-process.ts");
-		spawnProcessSync("git", ["init"], { cwd: testDir, encoding: "utf-8" });
-		spawnProcessSync("git", ["config", "user.email", "test@pwpi.local"], { cwd: testDir, encoding: "utf-8" });
-		spawnProcessSync("git", ["config", "user.name", "PWPI Test"], { cwd: testDir, encoding: "utf-8" });
+		const { spawnSync } = await import("node:child_process");
+		spawnSync("git", ["init"], { cwd: testDir, encoding: "utf-8" });
+		spawnSync("git", ["config", "user.email", "test@pi.local"], { cwd: testDir, encoding: "utf-8" });
+		spawnSync("git", ["config", "user.name", "Pi Test"], { cwd: testDir, encoding: "utf-8" });
 
 		const initialFile = join(testDir, "readme.md");
 		writeFileSync(initialFile, "# Project\nInitial content\n", "utf-8");
-		spawnProcessSync("git", ["add", "."], { cwd: testDir, encoding: "utf-8" });
-		spawnProcessSync("git", ["commit", "-m", "Initial commit"], { cwd: testDir, encoding: "utf-8" });
+		spawnSync("git", ["add", "."], { cwd: testDir, encoding: "utf-8" });
+		spawnSync("git", ["commit", "-m", "Initial commit"], { cwd: testDir, encoding: "utf-8" });
 
 		const gitOrchestrator = new Orchestrator(testDir);
 		const task = gitOrchestrator.createTask({

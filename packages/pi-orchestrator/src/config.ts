@@ -5,8 +5,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
-import { CONFIG_DIR_NAME } from "../config.ts";
 import type { OrchestratorConfig } from "./types.ts";
+
+export const CONFIG_DIR_NAME = ".pi";
 
 export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
 	agents: {

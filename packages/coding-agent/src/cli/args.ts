@@ -272,16 +272,6 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} list                      List installed extensions from settings
   ${APP_NAME} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
   ${APP_NAME} auth <command>            Print credentials or check provider readiness
-  ${APP_NAME} task "<title>"            Set/orchestrate main task with Antigravity
-  ${APP_NAME} agents                    Show configured agents (Antigravity & Antigravity2)
-  ${APP_NAME} workers                   List tasks assigned to worker Antigravity2
-  ${APP_NAME} delegate "<description>"  Delegate an isolated task to Antigravity2
-  ${APP_NAME} worker status             Show multi-agent real-time dashboard
-  ${APP_NAME} worker logs [task_id]     View worker logs
-  ${APP_NAME} worker cancel <task_id>   Cancel a worker task
-  ${APP_NAME} diff <task_id>            View diff produced by Antigravity2
-  ${APP_NAME} approve <task_id>         Approve and merge worker changes into master
-  ${APP_NAME} reject <task_id>          Reject worker changes and clean workspace
   ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/auth
 
 ${chalk.bold("Options:")}
