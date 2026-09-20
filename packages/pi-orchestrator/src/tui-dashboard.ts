@@ -22,6 +22,7 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 	let message = "";
 	let isInputMode = false;
 	let refreshInterval: NodeJS.Timeout | null = null;
+	let currentScrollOffset = 0;
 
 	const clearScreen = () => {
 		process.stdout.write("\x1b[2J\x1b[0;0H");
@@ -32,7 +33,10 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 		try {
 			const status = await orchestrator.getStatus(forceQuota);
 			clearScreen();
-			const rendered = renderDashboard(status, Math.min(process.stdout.columns || 80, 95));
+			const rendered = renderDashboard(status, Math.min(process.stdout.columns || 80, 95), {
+				scrollOffset: currentScrollOffset,
+				windowSize: 8,
+			});
 			process.stdout.write(`${rendered}\n`);
 			if (message) {
 				process.stdout.write(`\n${message}\n`);
@@ -107,6 +111,34 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 			const status = await orchestrator.getStatus(false);
 			const rendered = renderDashboard(status, Math.min(process.stdout.columns || 80, 95));
 			process.stdout.write(`${rendered}\n\n${message}\n`);
+			return;
+		}
+
+		// Arrow Up / k - Scroll task feed up (older tasks)
+		if (key === "\u001b[A" || key === "k") {
+			currentScrollOffset++;
+			await redraw(false);
+			return;
+		}
+
+		// Arrow Down / j - Scroll task feed down (newer tasks)
+		if (key === "\u001b[B" || key === "j") {
+			currentScrollOffset = Math.max(0, currentScrollOffset - 1);
+			await redraw(false);
+			return;
+		}
+
+		// Page Up - Scroll 5 lines up
+		if (key === "\u001b[5~") {
+			currentScrollOffset += 5;
+			await redraw(false);
+			return;
+		}
+
+		// Page Down - Scroll 5 lines down
+		if (key === "\u001b[6~") {
+			currentScrollOffset = Math.max(0, currentScrollOffset - 5);
+			await redraw(false);
 			return;
 		}
 

@@ -30,7 +30,12 @@ function renderProgressBar(pct?: number, width = 10): string {
 	return `[${bar}] ${color(pctStr)}`;
 }
 
-export function renderDashboard(status: OrchestratorStatus, width = 78): string {
+export interface DashboardRenderOptions {
+	scrollOffset?: number; // 0 = at bottom / most recent tasks
+	windowSize?: number; // default 8 lines
+}
+
+export function renderDashboard(status: OrchestratorStatus, width = 78, options: DashboardRenderOptions = {}): string {
 	const w = Math.max(70, Math.min(width, 100));
 	const innerWidth = w - 2;
 
@@ -229,23 +234,82 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 
 	out.push(separator());
 
-	// DELEGATED SUBTASKS TABLE
-	out.push(line(chalk.bold.underline("DELEGATED SUBTASKS & WORKTREE ISOLATION")));
-	out.push(line(""));
+	// DELEGATED LIVE SUBTASKS & ACTIVITY FEED (SCROLLABLE WINDOW)
+	const taskLines: string[] = [];
 
 	if (status.tasks.length === 0) {
-		out.push(line(chalk.dim("  No subtasks delegated yet. Agenty czekają na zadania.")));
+		taskLines.push(chalk.dim("  (No subtasks delegated yet. Workers idle / awaiting instructions)"));
 	} else {
-		for (const rec of status.tasks.slice(-5)) {
-			const id = chalk.bold(rec.task.task_id.padEnd(11));
+		for (const rec of status.tasks) {
+			const id = chalk.bold.cyan(rec.task.task_id.padEnd(11));
 			const agent = chalk.blue(rec.task.agent.slice(0, 16).padEnd(16));
 			const title = rec.task.title.slice(0, 24).padEnd(25);
 			const st = formatStatus(rec.status);
-			out.push(line(`  ${id} ${agent} ${title} ${st}`));
-			if (rec.result?.summary) {
-				out.push(line(`     └─ ${chalk.dim(rec.result.summary.slice(0, 65))}`));
+			taskLines.push(`  ${id} ${agent} ${title} ${st}`);
+
+			if (rec.status === "running") {
+				const workerObj = status.workers.find((w) => w.name === rec.task.agent);
+				const act = workerObj?.currentActivity || "Executing instructions in worktree...";
+				taskLines.push(`     ${chalk.green.bold("▶")} ${chalk.yellow(act.slice(0, innerWidth - 12))}`);
+			} else if (rec.result?.summary) {
+				taskLines.push(`     └─ ${chalk.dim(rec.result.summary.slice(0, innerWidth - 12))}`);
 			}
+
+			if (rec.securityAudit) {
+				const audit = rec.securityAudit;
+				const auditText = audit.passed
+					? chalk.green("✔ Security Clean")
+					: chalk.red(`✘ Security Flagged [${audit.severity.toUpperCase()}]`);
+				taskLines.push(`     🛡️ ${auditText} ${chalk.dim(`(Auditor: ${audit.auditedBy})`)}`);
+			}
+
+			if (rec.skillCreated) {
+				taskLines.push(`     💡 ${chalk.cyan(`Skill saved: .pi/skills/${rec.skillCreated.skillName}.md`)}`);
+			}
+
+			// Add separator line between tasks in feed
+			taskLines.push(chalk.dim(`  ${"┄".repeat(innerWidth - 8)}`));
 		}
+	}
+
+	const windowSize = Math.max(5, options.windowSize || 7);
+	const totalLines = taskLines.length;
+	const maxOffset = Math.max(0, totalLines - windowSize);
+	const offset = Math.max(0, Math.min(maxOffset, options.scrollOffset || 0));
+
+	const endIndex = totalLines - offset;
+	const startIndex = Math.max(0, endIndex - windowSize);
+	const visibleLines = taskLines.slice(startIndex, endIndex);
+
+	const olderCount = startIndex;
+	const newerCount = offset;
+
+	let scrollHeader = chalk.bold.underline("LIVE TASKS & REAL-TIME ACTIVITY FEED");
+	if (olderCount > 0) {
+		scrollHeader += ` ${chalk.yellow(`▲ ${olderCount} older [↑/k]`)}`;
+	} else {
+		scrollHeader += ` ${chalk.dim("▲ Top")}`;
+	}
+	if (newerCount > 0) {
+		scrollHeader += ` ${chalk.cyan(`▼ ${newerCount} newer [↓/j]`)}`;
+	} else {
+		scrollHeader += ` ${chalk.green("● Live")}`;
+	}
+
+	out.push(line(scrollHeader));
+	out.push(line(""));
+
+	for (let i = 0; i < windowSize; i++) {
+		const content = visibleLines[i] || "";
+		// Scrollbar indicator on the right edge
+		let scrollChar = " ";
+		if (totalLines > windowSize) {
+			const thumbIndex = Math.round((startIndex / maxOffset) * (windowSize - 1));
+			scrollChar = i === thumbIndex ? chalk.cyan.bold("█") : chalk.dim("│");
+		}
+		const textWidth = innerWidth - 5;
+		const padded = pad(content, textWidth);
+		out.push(`│ ${padded} ${scrollChar} │`);
 	}
 
 	out.push(separator());
@@ -253,11 +317,11 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 	// KEYBOARD SHORTCUTS LEGEND
 	out.push(
 		line(
-			`${chalk.dim("[1-5]")} Worker  ${chalk.dim("[M]")} Master  ${chalk.dim(
-				"[S]",
-			)} Auditor  ${chalk.dim("[O]")} Model  ${chalk.dim("[A]")} Auto-Idle  ${chalk.dim(
-				"[K]",
-			)} Skill  ${chalk.dim("[Q]")} Exit`,
+			`${chalk.dim("[↑/↓]")} Scroll  ${chalk.dim("[1-5]")} Worker  ${chalk.dim(
+				"[M]",
+			)} Master  ${chalk.dim("[S]")} Auditor  ${chalk.dim("[O]")} Model  ${chalk.dim(
+				"[A]",
+			)} Auto  ${chalk.dim("[Q]")} Exit`,
 		),
 	);
 	out.push(bottomBorder());
