@@ -115,8 +115,23 @@ export async function handleOrchestratorCommand(
 				console.log(`Usage: pi-orchestrator master <account_id>`);
 				return true;
 			}
-			orchestrator.setMasterAccount(targetAccount);
+			orchestrator.setAccountRole(targetAccount, "master");
 			console.log(chalk.green(`Master account updated to: ${chalk.bold(targetAccount)}`));
+			return true;
+		}
+
+		case "role": {
+			const targetAcc = args[1]?.trim();
+			const targetRole = args[2]?.toLowerCase()?.trim();
+			if (!targetAcc || !targetRole) {
+				console.log("Usage: pi-orchestrator role <account_id> <worker|auditor|master|idle>");
+				return true;
+			}
+			const normalizedRole = targetRole === "auditor" ? "security_auditor" : (targetRole as any);
+			orchestrator.setAccountRole(targetAcc, normalizedRole);
+			console.log(
+				chalk.green(`Account ${chalk.bold(targetAcc)} role updated to: ${chalk.cyan.bold(normalizedRole)}`),
+			);
 			return true;
 		}
 

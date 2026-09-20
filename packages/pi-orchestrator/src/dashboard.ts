@@ -95,10 +95,12 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 	if (!status.accounts || status.accounts.length === 0) {
 		out.push(line(chalk.dim("  No accounts discovered in ~/.pi/agent/auth.json")));
 	} else {
+		let idx = 1;
 		for (const acc of status.accounts) {
+			const numTag = chalk.cyan.bold(`[${idx}]`);
 			const roleTag = formatRole(acc.role).padEnd(16);
 			const label = acc.label ? `(${acc.label})` : "";
-			const nameStr = `${acc.accountId} ${label}`.slice(0, 26).padEnd(26);
+			const nameStr = `${acc.accountId} ${label}`.slice(0, 23).padEnd(23);
 
 			let quotaLine = "";
 			if (acc.provider === "xai") {
@@ -111,8 +113,9 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 				quotaLine = `5H ${fiveHBar} ${fiveHReset} │ WK ${weeklyBar} ${weeklyReset}`;
 			}
 
-			out.push(line(`  ${roleTag} ${chalk.white.bold(nameStr)}`));
-			out.push(line(`     └─ ${quotaLine}`));
+			out.push(line(`  ${numTag} ${roleTag} ${chalk.white.bold(nameStr)}`));
+			out.push(line(`       └─ ${quotaLine}`));
+			idx++;
 		}
 	}
 
@@ -225,11 +228,11 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 	// KEYBOARD SHORTCUTS LEGEND
 	out.push(
 		line(
-			`${chalk.dim("[M]")} Master  ${chalk.dim("[W]")} Worker  ${chalk.dim(
+			`${chalk.dim("[1-5]")} Worker  ${chalk.dim("[M]")} Master  ${chalk.dim(
 				"[S]",
 			)} Auditor  ${chalk.dim("[A]")} Auto-Idle  ${chalk.dim("[K]")} Skill  ${chalk.dim(
 				"[R]",
-			)} Quotas  ${chalk.dim("[D]")} Delegate  ${chalk.dim("[Q]")} Exit`,
+			)} Quota  ${chalk.dim("[Q]")} Exit`,
 		),
 	);
 	out.push(bottomBorder());

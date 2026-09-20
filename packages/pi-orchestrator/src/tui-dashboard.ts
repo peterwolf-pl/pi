@@ -104,26 +104,56 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 			return;
 		}
 
+		// 1..9 - Direct Toggle Worker Role for Account Number
+		const num = Number.parseInt(key, 10);
+		if (!Number.isNaN(num) && num >= 1 && num <= 9) {
+			const accounts = getDiscoveredAccounts().map((a) => a.id);
+			const targetAcc = accounts[num - 1];
+			if (!targetAcc) {
+				message = chalk.yellow(`No account found at slot [${num}].`);
+				await redraw(false);
+				return;
+			}
+			if (targetAcc === orchestrator.config.masterAccount) {
+				message = chalk.yellow(
+					`Account [${num}] (${targetAcc}) is currently MASTER. Use [M] to change master first.`,
+				);
+				await redraw(false);
+				return;
+			}
+			const isWorker = orchestrator.getActiveWorkers().includes(targetAcc);
+			if (isWorker) {
+				orchestrator.setAccountRole(targetAcc, "idle");
+				message = chalk.yellow.bold(`Account [${num}] (${targetAcc}) set to: IDLE`);
+			} else {
+				orchestrator.setAccountRole(targetAcc, "worker");
+				message = chalk.blue.bold(`Account [${num}] (${targetAcc}) set to: WORKER`);
+			}
+			await redraw(false);
+			return;
+		}
+
 		// S - Toggle Security Auditor or switch auditor account
 		if (key === "s" || key === "S") {
 			const accounts = getDiscoveredAccounts().map((a) => a.id);
+			const candidateAuditors = accounts.filter((id) => id !== orchestrator.config.masterAccount);
 			const currentAuditor = orchestrator.securityAuditor.getAuditorAccount();
 			const isEnabled = orchestrator.securityAuditor.isEnabled();
 
 			if (isEnabled) {
-				// Cycle auditor account or turn off
-				const nextIndex = (accounts.indexOf(currentAuditor) + 1) % (accounts.length + 1);
-				if (nextIndex === accounts.length) {
+				const nextIndex = (candidateAuditors.indexOf(currentAuditor) + 1) % (candidateAuditors.length + 1);
+				if (nextIndex === candidateAuditors.length) {
 					orchestrator.setSecurityAuditor(currentAuditor, false);
 					message = chalk.red.bold("Security Auditor DISABLED.");
 				} else {
-					const nextAuditor = accounts[nextIndex];
-					orchestrator.setSecurityAuditor(nextAuditor, true);
+					const nextAuditor = candidateAuditors[nextIndex];
+					orchestrator.setAccountRole(nextAuditor, "security_auditor");
 					message = chalk.green.bold(`Security Auditor assigned to: ${nextAuditor}`);
 				}
 			} else {
-				orchestrator.setSecurityAuditor(currentAuditor, true);
-				message = chalk.green.bold(`Security Auditor ENABLED (Auditor: ${currentAuditor})`);
+				const auditorAcc = candidateAuditors[0] || "xai";
+				orchestrator.setAccountRole(auditorAcc, "security_auditor");
+				message = chalk.green.bold(`Security Auditor ENABLED (Auditor: ${auditorAcc})`);
 			}
 			await redraw(false);
 			return;
@@ -137,7 +167,7 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 			const nextIndex = (currentIndex + 1) % accounts.length;
 			const nextMaster = accounts[nextIndex];
 
-			orchestrator.setMasterAccount(nextMaster);
+			orchestrator.setAccountRole(nextMaster, "master");
 			message = chalk.magenta.bold(`Master account switched to: ${nextMaster}`);
 			await redraw(false);
 			return;
@@ -147,22 +177,19 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 		if (key === "w" || key === "W") {
 			const accounts = getDiscoveredAccounts().map((a) => a.id);
 			const activeWorkers = orchestrator.getActiveWorkers();
-			// Find non-master accounts
 			const nonMaster = accounts.filter((id) => id !== orchestrator.config.masterAccount);
 			if (nonMaster.length === 0) {
 				message = chalk.yellow("No other accounts available to toggle as workers.");
 				await redraw(false);
 				return;
 			}
-			// Toggle the next non-master account
 			const inactive = nonMaster.find((id) => !activeWorkers.includes(id));
 			if (inactive) {
-				orchestrator.toggleWorkerAccount(inactive, true);
+				orchestrator.setAccountRole(inactive, "worker");
 				message = chalk.blue.bold(`Worker activated: ${inactive}`);
 			} else {
-				// If all are active, toggle off the last one
 				const toDisable = nonMaster[nonMaster.length - 1];
-				orchestrator.toggleWorkerAccount(toDisable, false);
+				orchestrator.setAccountRole(toDisable, "idle");
 				message = chalk.yellow.bold(`Worker deactivated: ${toDisable}`);
 			}
 			await redraw(false);

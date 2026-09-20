@@ -16,6 +16,7 @@ import { SkillManager } from "./skill-manager.ts";
 import type {
 	AccountLimits,
 	AgentInfo,
+	AgentRole,
 	DocsGenerationResult,
 	MainTaskInfo,
 	OrchestratorConfig,
@@ -105,6 +106,18 @@ export class Orchestrator {
 		this.masterAgent = new MasterAgent(accountId);
 		// Remove from active workers if it was one
 		this.config.activeWorkers = this.config.activeWorkers.filter((id) => id !== accountId);
+		this.workerAgents.delete(accountId);
+
+		// If master was security auditor, move auditor to xai or fallback
+		if (this.config.securityAuditorAccount === accountId) {
+			const fallback =
+				["xai", "google-antigravity-4", "google-antigravity-3", "google-antigravity-2"].find(
+					(id) => id !== accountId,
+				) || "xai";
+			this.config.securityAuditorAccount = fallback;
+			this.securityAuditor.setAuditorAccount(fallback);
+		}
+
 		saveOrchestratorConfig(this.config, this.cwd);
 		this.emitEvent({
 			type: "account_switched",
@@ -119,6 +132,13 @@ export class Orchestrator {
 		this.config.securityAuditorEnabled = enabled;
 		this.securityAuditor.setAuditorAccount(accountId);
 		this.securityAuditor.setEnabled(enabled);
+
+		// Remove from active workers so auditor does not execute subtasks or audit own work
+		if (enabled) {
+			this.config.activeWorkers = this.config.activeWorkers.filter((id) => id !== accountId);
+			this.workerAgents.delete(accountId);
+		}
+
 		saveOrchestratorConfig(this.config, this.cwd);
 		this.emitEvent({
 			type: "account_switched",
@@ -132,14 +152,53 @@ export class Orchestrator {
 		const isCurrentlyActive = this.config.activeWorkers.includes(accountId);
 		const targetState = enabled !== undefined ? enabled : !isCurrentlyActive;
 
-		if (targetState && !isCurrentlyActive) {
-			this.config.activeWorkers.push(accountId);
-			this.workerAgents.set(accountId, new WorkerAgent(accountId));
-		} else if (!targetState && isCurrentlyActive) {
+		if (targetState) {
+			// If this account was the security auditor, reassign auditor to fallback
+			if (this.config.securityAuditorAccount === accountId) {
+				const fallback =
+					["xai", "google-antigravity-3", "google-antigravity-2"].find(
+						(id) => id !== accountId && id !== this.config.masterAccount,
+					) || "xai";
+				this.config.securityAuditorAccount = fallback;
+				this.securityAuditor.setAuditorAccount(fallback);
+			}
+
+			if (!isCurrentlyActive) {
+				this.config.activeWorkers.push(accountId);
+				this.workerAgents.set(accountId, new WorkerAgent(accountId));
+			}
+		} else if (isCurrentlyActive) {
 			this.config.activeWorkers = this.config.activeWorkers.filter((id) => id !== accountId);
 			this.workerAgents.delete(accountId);
 		}
 		saveOrchestratorConfig(this.config, this.cwd);
+	}
+
+	public setAccountRole(accountId: string, role: AgentRole): void {
+		if (role === "master") {
+			this.setMasterAccount(accountId);
+			return;
+		}
+		if (role === "security_auditor") {
+			this.setSecurityAuditor(accountId, true);
+			return;
+		}
+		if (role === "worker") {
+			this.toggleWorkerAccount(accountId, true);
+			return;
+		}
+		if (role === "idle") {
+			this.toggleWorkerAccount(accountId, false);
+			if (this.config.securityAuditorAccount === accountId) {
+				const fallback =
+					["xai", "google-antigravity-3", "google-antigravity-2"].find(
+						(id) => id !== accountId && id !== this.config.masterAccount,
+					) || "xai";
+				this.config.securityAuditorAccount = fallback;
+				this.securityAuditor.setAuditorAccount(fallback);
+			}
+			saveOrchestratorConfig(this.config, this.cwd);
+		}
 	}
 
 	public getActiveWorkers(): string[] {
@@ -550,18 +609,25 @@ export class Orchestrator {
 		let accountsLimits: AccountLimits[] = [];
 		try {
 			accountsLimits = await fetchAllAccountLimits(forceRefreshQuotas);
-			// Mark roles
+			// Mark roles unambiguously
 			for (const acc of accountsLimits) {
 				acc.isMaster = acc.accountId === this.config.masterAccount;
-				acc.isSecurityAuditor = acc.accountId === this.config.securityAuditorAccount;
+				const isDesignatedAuditor =
+					this.config.securityAuditorEnabled && acc.accountId === this.config.securityAuditorAccount;
+				const isWorker = this.config.activeWorkers.includes(acc.accountId);
+
 				if (acc.isMaster) {
 					acc.role = "master";
-				} else if (acc.isSecurityAuditor) {
-					acc.role = "security_auditor";
-				} else if (this.config.activeWorkers.includes(acc.accountId)) {
+					acc.isSecurityAuditor = false;
+				} else if (isWorker) {
 					acc.role = "worker";
+					acc.isSecurityAuditor = false;
+				} else if (isDesignatedAuditor) {
+					acc.role = "security_auditor";
+					acc.isSecurityAuditor = true;
 				} else {
 					acc.role = "idle";
+					acc.isSecurityAuditor = false;
 				}
 			}
 		} catch {
