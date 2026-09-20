@@ -1,5 +1,5 @@
 /**
- * Central Orchestrator for PWPI Multi-Agent Architecture.
+ * Central Orchestrator for Pi Multi-Agent Architecture.
  * Coordinates Master, Multiple Workers (Antigravity 1/2/3, xAI),
  * and dedicated Security Auditor.
  */
@@ -12,13 +12,16 @@ import { OrchestratorLogger } from "./logger.ts";
 import { MasterAgent } from "./master-agent.ts";
 import { fetchAllAccountLimits } from "./quota.ts";
 import { SecurityAuditor } from "./security-auditor.ts";
+import { SkillManager } from "./skill-manager.ts";
 import type {
 	AccountLimits,
 	AgentInfo,
+	DocsGenerationResult,
 	MainTaskInfo,
 	OrchestratorConfig,
 	OrchestratorEvent,
 	OrchestratorStatus,
+	SkillExtractionResult,
 	TaskResult,
 	WorkerTask,
 	WorkerTaskRecord,
@@ -45,6 +48,7 @@ export class Orchestrator {
 	readonly fileOwnership: FileOwnershipManager;
 	readonly workspaceManager: WorkspaceManager;
 	readonly securityAuditor: SecurityAuditor;
+	readonly skillManager: SkillManager;
 
 	private masterAgent: MasterAgent;
 	private readonly workerAgents: Map<string, WorkerAgent> = new Map();
@@ -67,6 +71,7 @@ export class Orchestrator {
 			this.config.securityAuditorAccount,
 			this.config.securityAuditorEnabled,
 		);
+		this.skillManager = new SkillManager(cwd);
 
 		// Initialize worker agents
 		for (const workerId of this.config.activeWorkers) {
@@ -381,6 +386,33 @@ export class Orchestrator {
 				timestamp: Date.now(),
 				data: result,
 			});
+
+			// Autonomous Idle Task: Skill Extraction & Documentation update
+			if (this.config.idleWork?.autoIdleWork && record.status === "completed") {
+				try {
+					if (this.config.idleWork.extractSkills) {
+						workerAgent.setStatus("extracting_skills", `Extracting skill from ${task.title}`);
+						const skill = await this.skillManager.extractSkillFromTask(record, task.agent);
+						record.skillCreated = skill;
+						result.skillCreated = skill;
+						this.emitEvent({
+							type: "skill_extracted",
+							taskId,
+							agentName: task.agent,
+							timestamp: Date.now(),
+							data: skill,
+						});
+					}
+					if (this.config.idleWork.generateDocs) {
+						workerAgent.setStatus("writing_docs", "Updating worker knowledge base docs");
+						await this.skillManager.generateDocumentation(this.getTasks(), task.agent);
+					}
+				} catch {
+					// best-effort idle task
+				} finally {
+					workerAgent.setStatus("idle");
+				}
+			}
 		} catch (err: any) {
 			record.status = "failed";
 			record.error = err.message;
@@ -552,7 +584,38 @@ export class Orchestrator {
 			agentsCount: 1 + workersList.length + (this.securityAuditor.isEnabled() ? 1 : 0),
 			accounts: accountsLimits,
 			securityAuditEnabled: this.securityAuditor.isEnabled(),
+			idleWorkEnabled: this.config.idleWork?.autoIdleWork ?? true,
+			skillsCreated: this.skillManager.getSkills(),
 		};
+	}
+
+	public setAutoIdleWork(enabled: boolean): void {
+		if (!this.config.idleWork) {
+			this.config.idleWork = {
+				autoIdleWork: enabled,
+				extractSkills: true,
+				generateDocs: true,
+				assistSecurityAudit: true,
+			};
+		} else {
+			this.config.idleWork.autoIdleWork = enabled;
+		}
+		saveOrchestratorConfig(this.config, this.cwd);
+	}
+
+	public async extractSkillFromTask(taskId: string): Promise<SkillExtractionResult> {
+		const record = this.tasks.get(taskId);
+		if (!record) {
+			throw new Error(`Task ${taskId} not found`);
+		}
+		const skill = await this.skillManager.extractSkillFromTask(record, record.task.agent);
+		record.skillCreated = skill;
+		this.saveState();
+		return skill;
+	}
+
+	public async updateDocumentation(): Promise<DocsGenerationResult> {
+		return this.skillManager.generateDocumentation(this.getTasks(), this.config.masterAccount);
 	}
 
 	public getTasks(): WorkerTaskRecord[] {

@@ -1,5 +1,5 @@
 /**
- * Configuration manager for PWPI Multi-Agent AI Coding Orchestrator.
+ * Configuration manager for Pi Multi-Agent AI Coding Orchestrator.
  * Supports multi-account setups (Antigravity 1/2/3, xAI, etc.), role assignments,
  * and Security Auditor configuration.
  */
@@ -44,6 +44,12 @@ export function getDefaultConfig(): OrchestratorConfig {
 		securityAuditorEnabled: true,
 		activeWorkers,
 		accounts: accountsMap,
+		idleWork: {
+			autoIdleWork: true,
+			extractSkills: true,
+			generateDocs: true,
+			assistSecurityAudit: true,
+		},
 		delegation: {
 			enabled: true,
 			automatic: true,
@@ -100,6 +106,12 @@ export function loadOrchestratorConfig(cwd: string = process.cwd()): Orchestrato
 					: defaultConfig.securityAuditorEnabled,
 			activeWorkers: Array.isArray(parsed?.activeWorkers) ? parsed.activeWorkers : defaultConfig.activeWorkers,
 			accounts: parsed?.accounts || defaultConfig.accounts,
+			idleWork: {
+				autoIdleWork: parsed?.idleWork?.autoIdleWork ?? defaultConfig.idleWork.autoIdleWork,
+				extractSkills: parsed?.idleWork?.extractSkills ?? defaultConfig.idleWork.extractSkills,
+				generateDocs: parsed?.idleWork?.generateDocs ?? defaultConfig.idleWork.generateDocs,
+				assistSecurityAudit: parsed?.idleWork?.assistSecurityAudit ?? defaultConfig.idleWork.assistSecurityAudit,
+			},
 			delegation: {
 				enabled: parsed?.delegation?.enabled ?? defaultConfig.delegation.enabled,
 				automatic: parsed?.delegation?.automatic ?? defaultConfig.delegation.automatic,

@@ -17,7 +17,7 @@
  * 14. Real-time Quota reset formatting
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -255,5 +255,48 @@ diff --git a/math.ts b/math.ts
 
 		const past = new Date(Date.now() - 1000).toISOString();
 		expect(formatResetCountdown(past)).toBe("ready / now");
+	});
+
+	it("15. Skill Manager extracts reusable skill to .pi/skills/ from completed task", async () => {
+		const task = await orchestrator.createTask({
+			title: "Redis rate limiting configuration",
+			description: "Configure sliding window rate limiting in Redis.",
+		});
+
+		await orchestrator.runWorkerTask(task.task_id, {
+			runTurn: async (_prompt, workspacePath) => {
+				writeFileSync(join(workspacePath, "rate-limit.ts"), "// Rate limiter\nexport const limit = 100;");
+				return "Configured Redis rate limiting with sliding window.";
+			},
+		});
+
+		const skill = await orchestrator.extractSkillFromTask(task.task_id);
+		expect(skill.skillName).toBe("redis-rate-limiting-configuration");
+		expect(existsSync(join(testDir, skill.filePath))).toBe(true);
+
+		const content = readFileSync(join(testDir, skill.filePath), "utf-8");
+		expect(content).toContain("Redis rate limiting configuration");
+		expect(content).toContain("Context & Problem");
+	});
+
+	it("16. Autonomous Documentation updates knowledge base docs", async () => {
+		const task = await orchestrator.createTask({
+			title: "Setup PostgreSQL connection pool",
+			description: "Configure max connection pooling and keep-alives.",
+		});
+
+		await orchestrator.runWorkerTask(task.task_id, {
+			runTurn: async (_prompt, workspacePath) => {
+				writeFileSync(join(workspacePath, "pool.ts"), "export const poolSize = 20;");
+				return "Completed pool configuration.";
+			},
+		});
+
+		const docResult = await orchestrator.updateDocumentation();
+		expect(existsSync(join(testDir, docResult.filePath))).toBe(true);
+
+		const docContent = readFileSync(join(testDir, docResult.filePath), "utf-8");
+		expect(docContent).toContain("Setup PostgreSQL connection pool");
+		expect(docContent).toContain("Worker Knowledge Base");
 	});
 });

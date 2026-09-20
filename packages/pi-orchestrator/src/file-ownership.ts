@@ -1,5 +1,5 @@
 /**
- * Lightweight file ownership manager for PWPI Multi-Agent Orchestration.
+ * Lightweight file ownership manager for Pi Multi-Agent Orchestration.
  * Prevents race conditions and accidental overwrites between Master and Worker.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Logging subsystem for PWPI Multi-Agent AI Coding Orchestrator.
+ * Logging subsystem for Pi Multi-Agent AI Coding Orchestrator.
  * Records master.log, worker.log, orchestration.log.
  */
 

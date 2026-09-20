@@ -1,11 +1,12 @@
 /**
- * PWPI Multi-Agent AI Coding Orchestrator.
+ * Pi Multi-Agent AI Coding Orchestrator.
  * Extension entrypoint for Pi Coding Agent.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getOrchestrator } from "./cli.ts";
 import { renderDashboard } from "./dashboard.ts";
+import { registerOrchestratorProvider } from "./provider.ts";
 import { fetchAllAccountLimits } from "./quota.ts";
 import { registerOrchestratorTools } from "./tools.ts";
 
@@ -17,6 +18,7 @@ export * from "./file-ownership.ts";
 export * from "./logger.ts";
 export * from "./master-agent.ts";
 export * from "./orchestrator.ts";
+export * from "./provider.ts";
 export * from "./quota.ts";
 export * from "./security-auditor.ts";
 export * from "./tools.ts";
@@ -25,7 +27,7 @@ export * from "./types.ts";
 export * from "./worker-agent.ts";
 export * from "./workspace.ts";
 
-export default function orchestratorExtension(pi: ExtensionAPI): void {
+export default async function orchestratorExtension(pi: ExtensionAPI): Promise<void> {
 	const orchestrator = getOrchestrator(process.cwd());
 
 	// 1. Register tools for Master Agent (Antigravity)
@@ -34,7 +36,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 		pi.registerTool(tool);
 	}
 
-	// 2. Register slash commands
+	// 2. Register Orchestrator as a selectable model provider in Pi
+	//    (pi --model orchestrator/multi-agent)
+	await registerOrchestratorProvider(pi, orchestrator.config);
+
+	// 3. Register slash commands
 	pi.registerCommand("task", {
 		description: "Set main coding objective for Master Agent",
 		handler: async (args, ctx) => {
@@ -120,7 +126,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 		description: "Show multi-agent orchestrator agents and roles",
 		handler: async (_args, ctx) => {
 			const status = await orchestrator.getStatus(false);
-			let msg = `PWPI Multi-Agent Pool:\n`;
+			let msg = `Pi Multi-Agent Pool:\n`;
 			msg += `  MASTER   : ${status.master.name} [${status.master.status.toUpperCase()}]\n`;
 			for (const w of status.workers) {
 				msg += `  WORKER   : ${w.name} [${w.status.toUpperCase()}]\n`;

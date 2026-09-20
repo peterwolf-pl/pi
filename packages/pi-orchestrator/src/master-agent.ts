@@ -1,5 +1,5 @@
 /**
- * Antigravity - Primary/Master Agent for PWPI Multi-Agent Orchestrator.
+ * Antigravity - Primary/Master Agent for Pi Multi-Agent Orchestrator.
  * Responsible for task planning, delegation decisions, review, integration, and final verification.
  */
 
@@ -41,7 +41,7 @@ export class MasterAgent extends Agent {
 
 	/**
 	 * Evaluates whether a task should be delegated to Antigravity2
-	 * based on PWPI delegation economics and architectural safety.
+	 * based on Pi Orchestrator delegation economics and architectural safety.
 	 */
 	evaluateDelegation(candidate: {
 		title: string;

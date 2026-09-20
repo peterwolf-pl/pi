@@ -1,5 +1,5 @@
 /**
- * Security Auditor Agent module for PWPI Multi-Agent Orchestrator.
+ * Security Auditor Agent module for Pi Multi-Agent Orchestrator.
  * Inspects worker output, patches, and code diffs for security vulnerabilities,
  * secret leaks, command injection, and supply-chain risks.
  */

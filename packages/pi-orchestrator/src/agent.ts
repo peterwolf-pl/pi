@@ -1,5 +1,5 @@
 /**
- * Base Agent class for PWPI Multi-Agent Orchestration.
+ * Base Agent class for Pi Multi-Agent Orchestration.
  */
 
 import type { AgentInfo, AgentRole, AgentState } from "./types.ts";

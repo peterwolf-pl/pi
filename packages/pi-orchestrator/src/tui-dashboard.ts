@@ -91,7 +91,7 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 			}
 			process.stdin.pause();
 			clearScreen();
-			console.log(chalk.green("Dashboard exited. PWPI Orchestrator running in background."));
+			console.log(chalk.green("Dashboard exited. Pi Orchestrator running in background."));
 			process.exit(0);
 		}
 
@@ -209,10 +209,50 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 			return;
 		}
 
+		// A - Toggle Auto-Idle Worker Tasks (Skill Extraction & Docs)
+		if (key === "a" || key === "A") {
+			const currentState = orchestrator.config.idleWork?.autoIdleWork ?? true;
+			orchestrator.setAutoIdleWork(!currentState);
+			const newState = !currentState;
+			message = newState
+				? chalk.green.bold("Auto-Idle Tasks ENABLED: Workers extract skills & update docs when idle.")
+				: chalk.yellow.bold("Auto-Idle Tasks PAUSED: Workers do not run background skill tasks.");
+			await redraw(false);
+			return;
+		}
+
+		// K - Extract Skills and generate documentation now
+		if (key === "k" || key === "K") {
+			const tasks = orchestrator.getTasks();
+			const completed = tasks.filter((t) => t.status === "completed");
+			if (completed.length === 0) {
+				message = chalk.yellow("No completed tasks available to extract skills from yet.");
+				await redraw(false);
+				return;
+			}
+			message = chalk.yellow("Extracting skills and updating documentation...");
+			await redraw(false);
+			try {
+				let count = 0;
+				for (const rec of completed) {
+					if (!rec.skillCreated) {
+						await orchestrator.extractSkillFromTask(rec.task.task_id);
+						count++;
+					}
+				}
+				await orchestrator.updateDocumentation();
+				message = chalk.green.bold(`Skills & Docs updated! (Extracted ${count} new skills, docs generated)`);
+			} catch (err: any) {
+				message = chalk.red.bold(`Skill extraction failed: ${err.message}`);
+			}
+			await redraw(false);
+			return;
+		}
+
 		// H - Help
 		if (key === "h" || key === "H") {
 			message = chalk.cyan.bold(
-				"Keys: [M] Switch Master │ [W] Toggle Worker │ [S] Toggle Security Auditor │ [R] Refresh Quota │ [T] Set Task │ [D] Delegate │ [Q] Quit",
+				"Keys: [M] Master │ [W] Worker │ [S] Auditor │ [A] Auto-Idle │ [K] Skills/Docs │ [R] Quotas │ [T] Set Task │ [D] Delegate │ [Q] Quit",
 			);
 			await redraw(false);
 		}

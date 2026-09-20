@@ -1,5 +1,5 @@
 /**
- * CLI command handlers for PWPI Multi-Agent AI Coding Orchestrator.
+ * CLI command handlers for Pi Multi-Agent AI Coding Orchestrator.
  */
 
 import chalk from "chalk";
@@ -57,7 +57,7 @@ export async function handleOrchestratorCommand(
 
 		case "agents": {
 			const status = await orchestrator.getStatus(false);
-			console.log(chalk.bold("\nPWPI Configured Multi-Agent Pool:"));
+			console.log(chalk.bold("\nPi Configured Multi-Agent Pool:"));
 			console.log(
 				`  ${chalk.magenta.bold("MASTER")}   : ${chalk.bold(status.master.name)} [${status.master.status.toUpperCase()}]`,
 			);
@@ -149,7 +149,7 @@ export async function handleOrchestratorCommand(
 
 		case "workers": {
 			const tasks = orchestrator.getTasks();
-			console.log(chalk.bold("\nPWPI Delegated Worker Tasks:"));
+			console.log(chalk.bold("\nPi Delegated Worker Tasks:"));
 			if (tasks.length === 0) {
 				console.log(chalk.dim("  No worker tasks recorded yet."));
 			} else {
@@ -168,6 +168,54 @@ export async function handleOrchestratorCommand(
 				}
 			}
 			console.log("");
+			return true;
+		}
+
+		case "skills": {
+			const sub = args[1]?.toLowerCase();
+			if (sub === "extract") {
+				const taskId = args[2];
+				if (!taskId) {
+					console.error(chalk.red("Error: taskId is required.\nUsage: pi-orchestrator skills extract <task_id>"));
+					process.exit(1);
+				}
+				const skill = await orchestrator.extractSkillFromTask(taskId);
+				console.log(chalk.green(`Skill extracted and written to: ${skill.filePath}`));
+				return true;
+			}
+			const skills = orchestrator.skillManager.getSkills();
+			console.log(chalk.bold("\nPi Auto-Generated Skills (.pi/skills/):"));
+			if (skills.length === 0) {
+				console.log(chalk.dim("  No auto-generated skills recorded yet."));
+			} else {
+				for (const s of skills) {
+					console.log(`  - ${chalk.green.bold(s.skillName)}: ${s.title} (${chalk.dim(s.filePath)})`);
+				}
+			}
+			console.log("");
+			return true;
+		}
+
+		case "docs": {
+			const res = await orchestrator.updateDocumentation();
+			console.log(chalk.green(`Worker Knowledge Base documentation generated: ${res.filePath}`));
+			return true;
+		}
+
+		case "idle": {
+			const sub = args[1]?.toLowerCase();
+			if (sub === "on" || sub === "enable") {
+				orchestrator.setAutoIdleWork(true);
+				console.log(chalk.green("Autonomous Idle Worker Tasks ENABLED (Skills & Docs extraction)."));
+				return true;
+			}
+			if (sub === "off" || sub === "disable") {
+				orchestrator.setAutoIdleWork(false);
+				console.log(chalk.yellow("Autonomous Idle Worker Tasks DISABLED."));
+				return true;
+			}
+			const current = orchestrator.config.idleWork?.autoIdleWork ?? true;
+			console.log(`Autonomous Idle Worker Tasks: ${current ? chalk.green("ENABLED") : chalk.yellow("DISABLED")}`);
 			return true;
 		}
 
@@ -207,7 +255,7 @@ export async function handleOrchestratorCommand(
 			if (args[1]?.toLowerCase() === "logs") {
 				const taskId = args[2];
 				const entries = orchestrator.logger.getRecentLogs({ taskId, limit: 20 });
-				console.log(chalk.bold("\nPWPI Logs:"));
+				console.log(chalk.bold("\nPi Orchestrator Logs:"));
 				if (entries.length === 0) {
 					console.log(chalk.dim("  No log entries."));
 				} else {

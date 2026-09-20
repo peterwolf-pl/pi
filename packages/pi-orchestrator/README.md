@@ -59,7 +59,7 @@ pi-orchestrator dashboard
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ PWPI MULTI-AGENT CODING ORCHESTRATOR │ Antigravity & xAI & Security        │
+│ PI MULTI-AGENT CODING ORCHESTRATOR │ Antigravity & xAI & Security        │
 ├────────────────────────────────────────────────────────────────────────────┤
 │ ACCOUNTS & REAL-TIME QUOTAS (5H / WEEKLY LIMITS)                           │
 │                                                                            │

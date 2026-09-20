@@ -1,5 +1,5 @@
 /**
- * Antigravity2 - Secondary/Worker Agent for PWPI Multi-Agent Orchestrator.
+ * Antigravity2 - Secondary/Worker Agent for Pi Multi-Agent Orchestrator.
  * Receives narrowly scoped tasks, operates in an isolated workspace, and returns structured results.
  */
 

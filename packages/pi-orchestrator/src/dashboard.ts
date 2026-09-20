@@ -1,5 +1,5 @@
 /**
- * Terminal Dashboard for PWPI Multi-Agent Orchestrator.
+ * Terminal Dashboard for Pi Multi-Agent Orchestrator.
  * Renders an informative real-time terminal box showing:
  * - Multi-account quota tracking (5h and weekly limits with reset timers)
  * - Security Auditor status & findings
@@ -84,7 +84,7 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 	// Header
 	out.push(topBorder());
 	out.push(
-		line(`${chalk.bold.cyan("PWPI MULTI-AGENT CODING ORCHESTRATOR")} ${chalk.dim("│ Antigravity & xAI & Security")}`),
+		line(`${chalk.bold.cyan("PI MULTI-AGENT CODING ORCHESTRATOR")} ${chalk.dim("│ Antigravity & xAI & Security")}`),
 	);
 	out.push(separator());
 
@@ -156,6 +156,36 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 
 	out.push(separator());
 
+	// AUTONOMOUS SKILLS & DOCUMENTATION AGENT (IDLE WORKER TASKS)
+	out.push(line(chalk.bold.underline("SKILL MANAGER & DOCS GENERATOR (IDLE AGENTS)")));
+	out.push(line(""));
+
+	const idleWorkStatus = status.idleWorkEnabled
+		? `${chalk.green.bold("ACTIVE")} ${chalk.dim("(Idle workers extract skills & update docs)")}`
+		: `${chalk.yellow.bold("PAUSED")} ${chalk.dim("(Workers rest when idle)")}`;
+	out.push(line(`  Mode    : ${idleWorkStatus}`));
+
+	const skills = status.skillsCreated || [];
+	if (skills.length === 0) {
+		out.push(line(chalk.dim("  Skills  : No auto-generated skills yet (.pi/skills/)")));
+	} else {
+		const latestSkills = skills
+			.slice(-2)
+			.map((s) => s.skillName)
+			.join(", ");
+		out.push(
+			line(
+				`  Skills  : ${chalk.green.bold(String(skills.length))} skills ready ${chalk.dim(`(Latest: ${latestSkills})`)}`,
+			),
+		);
+	}
+
+	out.push(
+		line(`  Docs    : ${chalk.cyan("docs/WORKER_KNOWLEDGE_BASE.md")} ${chalk.dim("auto-synced from task results")}`),
+	);
+
+	out.push(separator());
+
 	// GENERAL CODING MAIN TASK
 	out.push(line(chalk.bold.underline("MAIN CODING OBJECTIVE")));
 	out.push(line(""));
@@ -197,7 +227,9 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 		line(
 			`${chalk.dim("[M]")} Master  ${chalk.dim("[W]")} Worker  ${chalk.dim(
 				"[S]",
-			)} Auditor  ${chalk.dim("[R]")} Quotas  ${chalk.dim("[D]")} Delegate  ${chalk.dim("[Q]")} Exit`,
+			)} Auditor  ${chalk.dim("[A]")} Auto-Idle  ${chalk.dim("[K]")} Skill  ${chalk.dim(
+				"[R]",
+			)} Quotas  ${chalk.dim("[D]")} Delegate  ${chalk.dim("[Q]")} Exit`,
 		),
 	);
 	out.push(bottomBorder());

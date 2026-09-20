@@ -45,6 +45,22 @@ interface MultiPassConfig {
 	}>;
 }
 
+export function getMasterCredentials(accountId = "antigravity"): string {
+	try {
+		const authPath = path.join(os.homedir(), ".pi", "agent", "auth.json");
+		if (fs.existsSync(authPath)) {
+			const auth = JSON.parse(fs.readFileSync(authPath, "utf-8")) as Record<string, RawAuthItem>;
+			const cred = auth[accountId] || auth.antigravity;
+			if (cred?.access) {
+				return JSON.stringify({ token: cred.access, projectId: cred.projectId || "antigravity-default" });
+			}
+		}
+	} catch {
+		// ignore
+	}
+	return "";
+}
+
 export function getDiscoveredAccounts(): Array<{
 	id: string;
 	provider: "antigravity" | "xai" | "google" | "other";

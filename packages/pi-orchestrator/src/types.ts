@@ -1,11 +1,20 @@
 /**
- * Core type definitions for PWPI Multi-Agent AI Coding Orchestrator.
- * Orchestrates Master, Multiple Workers (Antigravity & xAI), and Security Auditor.
+ * Core type definitions for Pi Multi-Agent AI Coding Orchestrator.
+ * Orchestrates Master, Multiple Workers (Antigravity & xAI), Security Auditor,
+ * and autonomous Skill & Documentation managers.
  */
 
-export type AgentRole = "master" | "worker" | "security_auditor" | "idle";
+export type AgentRole = "master" | "worker" | "security_auditor" | "skill_manager" | "docs_generator" | "idle";
 
-export type AgentState = "idle" | "running" | "waiting" | "reviewing" | "auditing" | "failed";
+export type AgentState =
+	| "idle"
+	| "running"
+	| "waiting"
+	| "reviewing"
+	| "auditing"
+	| "extracting_skills"
+	| "writing_docs"
+	| "failed";
 
 export type WorkerStatus =
 	| "queued"
@@ -34,8 +43,24 @@ export interface SecurityAuditResult {
 	auditedAt: number;
 }
 
+export interface SkillExtractionResult {
+	skillName: string;
+	filePath: string;
+	title: string;
+	description: string;
+	tags: string[];
+	createdAt: number;
+	extractedFromTaskId?: string;
+}
+
+export interface DocsGenerationResult {
+	filePath: string;
+	summary: string;
+	generatedAt: number;
+}
+
 export interface WorkerTask {
-	agent: string; // e.g. "google-antigravity-2" or "xai"
+	agent: string; // e.g. "google-antigravity-2", "google-antigravity-3", "google-antigravity-4", "xai"
 	task_id: string; // e.g. "worker-001"
 	title: string;
 	description: string;
@@ -57,6 +82,7 @@ export interface TaskResult {
 	files_changed: string[];
 	tests?: TaskTestResult;
 	securityAudit?: SecurityAuditResult;
+	skillCreated?: SkillExtractionResult;
 	problems?: string;
 	recommendation?: string;
 	patch_available?: boolean;
@@ -73,6 +99,7 @@ export interface WorkerTaskRecord {
 	workspacePath?: string;
 	error?: string;
 	securityAudit?: SecurityAuditResult;
+	skillCreated?: SkillExtractionResult;
 }
 
 export interface QuotaBucketInfo {
@@ -84,9 +111,9 @@ export interface QuotaBucketInfo {
 }
 
 export interface AccountLimits {
-	accountId: string; // "antigravity", "google-antigravity-2", "google-antigravity-3", "xai"
+	accountId: string; // "antigravity", "google-antigravity-2", "google-antigravity-3", "google-antigravity-4", "xai"
 	provider: "antigravity" | "xai" | "google" | "other";
-	label?: string; // "liam", "3", etc.
+	label?: string; // "liam", "3", "4", etc.
 	planLabel?: string; // "Google AI Pro (g1-pro-tier)"
 	role: AgentRole;
 	enabled: boolean;
@@ -115,12 +142,20 @@ export interface AccountConfig {
 	provider: string;
 }
 
+export interface IdleWorkConfig {
+	autoIdleWork: boolean; // if true, idle workers automatically extract skills and update documentation
+	extractSkills: boolean;
+	generateDocs: boolean;
+	assistSecurityAudit: boolean;
+}
+
 export interface OrchestratorConfig {
 	masterAccount: string; // default "antigravity"
 	securityAuditorAccount: string; // default "xai" or "google-antigravity-3"
 	securityAuditorEnabled: boolean; // toggle whether security audit is active
 	activeWorkers: string[]; // which accounts participate as workers
 	accounts: Record<string, AccountConfig>;
+	idleWork: IdleWorkConfig;
 	delegation: {
 		enabled: boolean;
 		automatic: boolean;
@@ -157,10 +192,13 @@ export interface OrchestratorStatus {
 	master: AgentInfo;
 	workers: AgentInfo[];
 	securityAuditor?: AgentInfo;
+	skillManager?: AgentInfo;
 	tasks: WorkerTaskRecord[];
 	agentsCount: number;
 	accounts: AccountLimits[];
 	securityAuditEnabled: boolean;
+	idleWorkEnabled: boolean;
+	skillsCreated: SkillExtractionResult[];
 }
 
 export type OrchestratorEventType =
@@ -174,6 +212,8 @@ export type OrchestratorEventType =
 	| "task_rejected"
 	| "security_audit_started"
 	| "security_audit_completed"
+	| "skill_extracted"
+	| "documentation_generated"
 	| "agent_state_changed"
 	| "account_switched"
 	| "quota_updated"

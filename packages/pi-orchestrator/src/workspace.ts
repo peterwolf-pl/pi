@@ -1,5 +1,5 @@
 /**
- * Isolated worker workspace manager for PWPI Multi-Agent Orchestrator.
+ * Isolated worker workspace manager for Pi Multi-Agent Orchestrator.
  * Uses Git worktrees and branches for complete isolation, or temp directories as fallback.
  * Implements strict Git safety guidelines (no destructive resets or cleans).
  */
