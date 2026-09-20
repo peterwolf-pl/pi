@@ -1,0 +1,52 @@
+masterAccount: antigravity
+securityAuditorAccount: xai
+securityAuditorEnabled: true
+activeWorkers:
+  - google-antigravity-2
+  - google-antigravity-3
+  - google-antigravity-4
+accounts:
+  xai:
+    id: xai
+    provider: xai
+    enabled: true
+    role: security_auditor
+  antigravity:
+    id: antigravity
+    provider: antigravity
+    label: liamprssn@gmail.com
+    enabled: true
+    role: master
+  google-antigravity-2:
+    id: google-antigravity-2
+    provider: antigravity
+    label: liam
+    enabled: true
+    role: worker
+  google-antigravity-3:
+    id: google-antigravity-3
+    provider: antigravity
+    label: "3"
+    enabled: true
+    role: worker
+  google-antigravity-4:
+    id: google-antigravity-4
+    provider: antigravity
+    label: "4"
+    enabled: true
+    role: worker
+idleWork:
+  autoIdleWork: true
+  extractSkills: true
+  generateDocs: true
+  assistSecurityAudit: true
+delegation:
+  enabled: true
+  automatic: true
+  max_workers: 4
+  default_timeout_ms: 300000
+workspace:
+  isolated_workers: true
+review:
+  automatic_merge: false
+  require_security_approval: true
