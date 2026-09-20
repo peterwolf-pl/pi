@@ -8,7 +8,7 @@ import * as readline from "node:readline";
 import chalk from "chalk";
 import { renderDashboard } from "./dashboard.ts";
 import type { Orchestrator } from "./orchestrator.ts";
-import { getDiscoveredAccounts } from "./quota.ts";
+import { clearQuotaCache, getDiscoveredAccounts } from "./quota.ts";
 
 export async function runInteractiveDashboard(orchestrator: Orchestrator): Promise<void> {
 	const isTTY = process.stdin.isTTY && process.stdout.isTTY;
@@ -95,12 +95,18 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 			process.exit(0);
 		}
 
-		// R - Force refresh quotas
+		// R - Force refresh quotas directly from provider APIs
 		if (key === "r" || key === "R") {
-			message = chalk.yellow("Refreshing live quotas from Google & xAI...");
+			clearQuotaCache();
+			message = chalk.yellow("Contacting Google Cloud & xAI APIs for real-time quotas...");
+			clearScreen();
+			process.stdout.write(chalk.yellow("Contacting Google Cloud & xAI APIs for real-time quotas...\n"));
 			await redraw(true);
-			message = chalk.green("Quotas refreshed!");
-			await redraw(false);
+			message = chalk.green.bold("✔ Live quotas fetched directly from Google & xAI API!");
+			clearScreen();
+			const status = await orchestrator.getStatus(false);
+			const rendered = renderDashboard(status, Math.min(process.stdout.columns || 80, 95));
+			process.stdout.write(`${rendered}\n\n${message}\n`);
 			return;
 		}
 

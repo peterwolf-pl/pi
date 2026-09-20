@@ -134,10 +134,70 @@ export function getDiscoveredAccounts(): Array<{
 
 // In-memory cache for live quota information
 const quotaCache = new Map<string, { limits: AccountLimits; expiresAt: number }>();
-const CACHE_TTL_MS = 45 * 1000; // 45 seconds
+const CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
+export function clearQuotaCache(): void {
+	quotaCache.clear();
+}
+
+const GOOGLE_CLIENT_ID = Buffer.from(
+	"MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ==",
+	"base64",
+).toString("utf-8");
+
+const GOOGLE_CLIENT_SECRET = Buffer.from("R09DU1BYLUs1OEZXUjQ4NkxkTEoxbUxCOHNYQzR6NnFEQWY=", "base64").toString(
+	"utf-8",
+);
+
+async function refreshGoogleAccountToken(accountId: string, cred: RawAuthItem): Promise<string | undefined> {
+	if (!cred.refresh) return undefined;
+	try {
+		const response = await fetch("https://oauth2.googleapis.com/token", {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({
+				client_id: GOOGLE_CLIENT_ID,
+				client_secret: GOOGLE_CLIENT_SECRET,
+				refresh_token: cred.refresh,
+				grant_type: "refresh_token",
+			}).toString(),
+		});
+
+		if (!response.ok) return undefined;
+		const data = (await response.json()) as {
+			access_token: string;
+			expires_in: number;
+			refresh_token?: string;
+		};
+
+		if (!data.access_token) return undefined;
+
+		// Persist back to ~/.pi/agent/auth.json
+		const authPath = path.join(os.homedir(), ".pi", "agent", "auth.json");
+		if (fs.existsSync(authPath)) {
+			const auth = JSON.parse(fs.readFileSync(authPath, "utf-8")) as Record<string, RawAuthItem>;
+			if (auth[accountId]) {
+				auth[accountId].access = data.access_token;
+				auth[accountId].expires = Date.now() + data.expires_in * 1000 - 5 * 60 * 1000;
+				if (data.refresh_token) {
+					auth[accountId].refresh = data.refresh_token;
+				}
+				fs.writeFileSync(authPath, JSON.stringify(auth, null, 2), "utf-8");
+			}
+		}
+
+		cred.access = data.access_token;
+		cred.expires = Date.now() + data.expires_in * 1000 - 5 * 60 * 1000;
+		return data.access_token;
+	} catch {
+		return undefined;
+	}
+}
 
 export async function fetchLiveAccountLimits(accountId: string, forceRefresh = false): Promise<AccountLimits> {
-	if (!forceRefresh) {
+	if (forceRefresh) {
+		quotaCache.delete(accountId);
+	} else {
 		const cached = quotaCache.get(accountId);
 		if (cached && cached.expiresAt > Date.now()) {
 			return cached.limits;
@@ -159,7 +219,17 @@ export async function fetchLiveAccountLimits(accountId: string, forceRefresh = f
 		};
 	}
 
-	const token = acc.cred.access || acc.cred.token;
+	let token = acc.cred.access || acc.cred.token;
+	const isGoogle = acc.provider === "antigravity" || acc.provider === "google";
+
+	// Auto-refresh expired or near-expired Google access tokens
+	if (isGoogle && acc.cred.expires && acc.cred.expires < Date.now() + 2 * 60 * 1000) {
+		const refreshed = await refreshGoogleAccountToken(accountId, acc.cred);
+		if (refreshed) {
+			token = refreshed;
+		}
+	}
+
 	if (!token) {
 		return {
 			accountId,
@@ -200,7 +270,7 @@ export async function fetchLiveAccountLimits(accountId: string, forceRefresh = f
 	// Handling Antigravity / Google
 	try {
 		// 1. Try retrieveUserQuotaSummary
-		const summaryRes = await fetch(`${DEFAULT_ENDPOINT}/v1internal:retrieveUserQuotaSummary`, {
+		let summaryRes = await fetch(`${DEFAULT_ENDPOINT}/v1internal:retrieveUserQuotaSummary`, {
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${token}`,
@@ -209,6 +279,23 @@ export async function fetchLiveAccountLimits(accountId: string, forceRefresh = f
 			},
 			body: "{}",
 		});
+
+		// Auto-refresh token if unauthenticated (401)
+		if (summaryRes.status === 401 && isGoogle) {
+			const refreshed = await refreshGoogleAccountToken(accountId, acc.cred);
+			if (refreshed) {
+				token = refreshed;
+				summaryRes = await fetch(`${DEFAULT_ENDPOINT}/v1internal:retrieveUserQuotaSummary`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${token}`,
+						"Content-Type": "application/json",
+						"User-Agent": DEFAULT_USER_AGENT,
+					},
+					body: "{}",
+				});
+			}
+		}
 
 		if (summaryRes.ok) {
 			const data = (await summaryRes.json()) as {
