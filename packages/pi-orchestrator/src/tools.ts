@@ -102,6 +102,12 @@ export function createDelegateTaskTool(orchestrator: Orchestrator): ToolDefiniti
 
 			const shouldWait = wait_for_result ?? true;
 			if (shouldWait) {
+				if (_ctx.hasUI) {
+					_ctx.ui.notify(
+						`⚡ [Pi Orchestrator] Delegating subtask to worker (${agent || "pool"}): "${title}"`,
+						"info",
+					);
+				}
 				try {
 					const result = await orchestrator.delegateTask({
 						title,
@@ -334,6 +340,9 @@ export function createApproveWorkerTaskTool(orchestrator: Orchestrator): ToolDef
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const { task_id, review_notes } = params as Static<typeof schema>;
 			const result = await orchestrator.approveTask(task_id, review_notes);
+			if (_ctx.hasUI && result.success) {
+				_ctx.ui.notify(`⚡ [Pi Orchestrator] Master approved & merged changes for [${task_id}]`, "info");
+			}
 			return {
 				content: [
 					{

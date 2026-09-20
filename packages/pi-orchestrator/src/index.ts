@@ -40,7 +40,67 @@ export default async function orchestratorExtension(pi: ExtensionAPI): Promise<v
 	//    (pi --model orchestrator/multi-agent)
 	await registerOrchestratorProvider(pi, orchestrator.config);
 
-	// 3. Register slash commands
+	// 3. UI Status Line & Persistent Banner (Visible in every interactive session)
+	const updateUiIndicators = (ui: any) => {
+		if (!ui) return;
+		const activeWorkers = orchestrator.getActiveWorkers();
+		const auditorName = orchestrator.securityAuditor.getAuditorAccount();
+		const auditorEnabled = orchestrator.securityAuditor.isEnabled();
+		const theme = ui.theme;
+
+		ui.setStatus(
+			"orchestrator",
+			theme.fg("accent", "⚡ Orchestrator ") +
+				theme.fg("dim", `[${activeWorkers.length}w | ${auditorEnabled ? auditorName : "no-sec"}]`),
+		);
+
+		ui.setWidget(
+			"orchestrator-banner",
+			[
+				theme.fg("accent", "⚡ Pi Multi-Agent Orchestrator: ") +
+					theme.fg("success", "Active") +
+					theme.fg(
+						"dim",
+						` (Master: ${orchestrator.config.masterAccount} | Workers: ${activeWorkers.length} | Auditor: ${auditorEnabled ? auditorName : "off"})`,
+					),
+			],
+			{ placement: "aboveEditor" },
+		);
+	};
+
+	pi.on("session_start", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		updateUiIndicators(ctx.ui);
+		const activeWorkers = orchestrator.getActiveWorkers();
+		const auditorName = orchestrator.securityAuditor.getAuditorAccount();
+		const auditorEnabled = orchestrator.securityAuditor.isEnabled();
+		ctx.ui.notify(
+			`⚡ Pi Multi-Agent Orchestrator is active!\nMaster: ${orchestrator.config.masterAccount} │ Workers: ${activeWorkers.length} │ Security Auditor: ${auditorEnabled ? auditorName : "off"}\nUse /status or run 'pi-orchestrator' in terminal for live dashboard.`,
+			"info",
+		);
+	});
+
+	pi.on("turn_start", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		updateUiIndicators(ctx.ui);
+	});
+
+	pi.on("tool_execution_start", async (event, ctx) => {
+		if (!ctx.hasUI) return;
+		if (event.toolName === "delegate_task") {
+			ctx.ui.setStatus("orchestrator", ctx.ui.theme.fg("warning", "⚡ [Worker Executing in Git Worktree...]"));
+			ctx.ui.setWorkingMessage("Worker executing isolated subtask in Git worktree...");
+		} else if (event.toolName === "run_security_audit") {
+			ctx.ui.setStatus("orchestrator", ctx.ui.theme.fg("warning", "🛡️ [Security Auditor Scanning Diff...]"));
+		}
+	});
+
+	pi.on("tool_execution_end", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		updateUiIndicators(ctx.ui);
+	});
+
+	// 4. Register slash commands
 	pi.registerCommand("task", {
 		description: "Set main coding objective for Master Agent",
 		handler: async (args, ctx) => {
