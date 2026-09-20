@@ -4,9 +4,10 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getOrchestrator } from "./cli.ts";
 import { renderDashboard } from "./dashboard.ts";
-import { getOrchestrator } from "./orchestrator.ts";
-import { getOrchestratorTools } from "./tools.ts";
+import { fetchAllAccountLimits } from "./quota.ts";
+import { registerOrchestratorTools } from "./tools.ts";
 
 export * from "./agent.ts";
 export * from "./cli.ts";
@@ -16,7 +17,10 @@ export * from "./file-ownership.ts";
 export * from "./logger.ts";
 export * from "./master-agent.ts";
 export * from "./orchestrator.ts";
+export * from "./quota.ts";
+export * from "./security-auditor.ts";
 export * from "./tools.ts";
+export * from "./tui-dashboard.ts";
 export * from "./types.ts";
 export * from "./worker-agent.ts";
 export * from "./workspace.ts";
@@ -25,14 +29,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 	const orchestrator = getOrchestrator(process.cwd());
 
 	// 1. Register tools for Master Agent (Antigravity)
-	const tools = getOrchestratorTools(orchestrator);
+	const tools = registerOrchestratorTools(orchestrator);
 	for (const tool of tools) {
 		pi.registerTool(tool);
 	}
 
 	// 2. Register slash commands
 	pi.registerCommand("task", {
-		description: "Set main task for Antigravity (Master Agent)",
+		description: "Set main coding objective for Master Agent",
 		handler: async (args, ctx) => {
 			const title = args.trim();
 			if (!title) {
@@ -40,114 +44,182 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 				return;
 			}
 			orchestrator.setMainTask(title);
-			const rendered = renderDashboard(orchestrator.getStatus());
+			const status = await orchestrator.getStatus(false);
+			const rendered = renderDashboard(status);
 			ctx.ui.notify(`Main task set: "${title}"\n\n${rendered}`, "info");
 		},
 	});
 
-	pi.registerCommand("agents", {
-		description: "Show multi-agent orchestrator agents (Antigravity & Antigravity2)",
+	pi.registerCommand("status", {
+		description: "Show multi-agent orchestrator dashboard and account quotas",
 		handler: async (_args, ctx) => {
-			const status = orchestrator.getStatus();
-			let msg = `PWPI Configured Agents:\n`;
-			msg += `  MASTER : ${status.master.name} [${status.master.status.toUpperCase()}]\n`;
-			for (const w of status.workers) {
-				msg += `  WORKER : ${w.name} [${w.status.toUpperCase()}]\n`;
+			const status = await orchestrator.getStatus(false);
+			const rendered = renderDashboard(status);
+			ctx.ui.notify(rendered, "info");
+		},
+	});
+
+	pi.registerCommand("quotas", {
+		description: "Show 5-hour and weekly limits and reset countdowns for all accounts",
+		handler: async (_args, ctx) => {
+			const limits = await fetchAllAccountLimits(true);
+			let msg = `Real-Time Quotas & Limits:\n`;
+			for (const acc of limits) {
+				const label = acc.label ? ` (${acc.label})` : "";
+				if (acc.provider === "xai") {
+					msg += `  ${acc.accountId}${label} [xAI Grok]: Status: ${acc.status}, Reset: ${acc.fiveHourReset || "ready"}\n`;
+				} else {
+					msg += `  ${acc.accountId}${label} [Antigravity]: 5H: ${acc.fiveHourRemaining ?? "--"}% (reset: ${acc.fiveHourReset || "ready"}), WK: ${acc.weeklyRemaining ?? "--"}% (reset: ${acc.weeklyReset || "ready"})\n`;
+				}
 			}
 			ctx.ui.notify(msg, "info");
 		},
 	});
 
-	pi.registerCommand("workers", {
-		description: "List all tasks assigned to worker agent Antigravity2",
+	pi.registerCommand("security", {
+		description: "Toggle security auditor or assign account (/security on | off | <account>)",
+		handler: async (args, ctx) => {
+			const arg = args.trim().toLowerCase();
+			if (arg === "on" || arg === "enable") {
+				orchestrator.setSecurityAuditor(orchestrator.config.securityAuditorAccount, true);
+				ctx.ui.notify(`Security Auditor ENABLED (Account: ${orchestrator.config.securityAuditorAccount})`, "info");
+				return;
+			}
+			if (arg === "off" || arg === "disable") {
+				orchestrator.setSecurityAuditor(orchestrator.config.securityAuditorAccount, false);
+				ctx.ui.notify("Security Auditor DISABLED.", "info");
+				return;
+			}
+			if (arg) {
+				orchestrator.setSecurityAuditor(arg, true);
+				ctx.ui.notify(`Security Auditor assigned to ${arg} and ENABLED.`, "info");
+				return;
+			}
+			const st = orchestrator.securityAuditor.isEnabled() ? "ENABLED" : "DISABLED";
+			ctx.ui.notify(
+				`Security Auditor is currently ${st} (Auditor: ${orchestrator.securityAuditor.getAuditorAccount()})`,
+				"info",
+			);
+		},
+	});
+
+	pi.registerCommand("master", {
+		description: "Switch Master agent account (/master <account_id>)",
+		handler: async (args, ctx) => {
+			const acc = args.trim();
+			if (!acc) {
+				ctx.ui.notify(`Current Master: ${orchestrator.config.masterAccount}\nUsage: /master <account_id>`, "info");
+				return;
+			}
+			orchestrator.setMasterAccount(acc);
+			ctx.ui.notify(`Master account switched to: ${acc}`, "info");
+		},
+	});
+
+	pi.registerCommand("agents", {
+		description: "Show multi-agent orchestrator agents and roles",
 		handler: async (_args, ctx) => {
-			const tasks = orchestrator.getAllTasks();
+			const status = await orchestrator.getStatus(false);
+			let msg = `PWPI Multi-Agent Pool:\n`;
+			msg += `  MASTER   : ${status.master.name} [${status.master.status.toUpperCase()}]\n`;
+			for (const w of status.workers) {
+				msg += `  WORKER   : ${w.name} [${w.status.toUpperCase()}]\n`;
+			}
+			const sec = status.securityAuditEnabled ? "ENABLED" : "DISABLED";
+			msg += `  AUDITOR  : ${status.securityAuditor?.name || "none"} [${sec}]\n`;
+			ctx.ui.notify(msg, "info");
+		},
+	});
+
+	pi.registerCommand("workers", {
+		description: "List all tasks delegated to workers",
+		handler: async (_args, ctx) => {
+			const tasks = orchestrator.getTasks();
 			if (tasks.length === 0) {
 				ctx.ui.notify("No worker tasks assigned yet.", "info");
 				return;
 			}
 			let msg = `Worker Tasks:\n`;
 			for (const t of tasks) {
-				msg += `  [${t.task.task_id}] ${t.task.title} - ${t.status.toUpperCase()}\n`;
+				const sec = t.securityAudit ? (t.securityAudit.passed ? " [SEC:PASS]" : " [SEC:FAIL]") : "";
+				msg += `  [${t.task.task_id}] (${t.task.agent}) ${t.task.title} - ${t.status.toUpperCase()}${sec}\n`;
 			}
 			ctx.ui.notify(msg, "info");
 		},
 	});
 
 	pi.registerCommand("delegate", {
-		description: "Delegate an isolated task to Antigravity2",
+		description: "Delegate a subtask to worker pool (/delegate <description>)",
 		handler: async (args, ctx) => {
 			const desc = args.trim();
 			if (!desc) {
 				ctx.ui.notify("Usage: /delegate <task description>", "error");
 				return;
 			}
-			ctx.ui.notify(`Delegating task to Antigravity2: "${desc}"...`, "info");
-			const res = await orchestrator.delegate({
-				title: desc,
-				description: desc,
-			});
-			let out = `Antigravity2 finished [${res.task_id}]: ${res.status.toUpperCase()}\n`;
-			out += `Summary: ${res.summary}\n`;
-			if (res.patch_available) {
-				out += `Patch available! Use /diff ${res.task_id} to view, /approve ${res.task_id} to merge.\n`;
+			ctx.ui.notify(`Delegating task to worker pool: "${desc}"...`, "info");
+			try {
+				const result = await orchestrator.delegateTask({
+					title: desc,
+					description: desc,
+				});
+				ctx.ui.notify(`Worker finished [${result.task_id}]: ${result.summary}`, "info");
+			} catch (err: any) {
+				ctx.ui.notify(`Worker task failed: ${err.message}`, "error");
 			}
-			ctx.ui.notify(out, res.status === "completed" ? "info" : "warning");
-		},
-	});
-
-	pi.registerCommand("status", {
-		description: "Display the multi-agent real-time dashboard",
-		handler: async (_args, ctx) => {
-			const rendered = renderDashboard(orchestrator.getStatus());
-			ctx.ui.notify(rendered, "info");
 		},
 	});
 
 	pi.registerCommand("diff", {
-		description: "View git diff produced by Antigravity2 for a worker task",
+		description: "Show git diff produced by a worker (/diff <task_id>)",
 		handler: async (args, ctx) => {
 			const taskId = args.trim();
 			if (!taskId) {
 				ctx.ui.notify("Usage: /diff <task_id>", "error");
 				return;
 			}
-			const diff = await orchestrator.getDiff(taskId);
-			ctx.ui.notify(diff || "No diff available for this task.", "info");
+			const record = orchestrator.getTask(taskId);
+			if (!record) {
+				ctx.ui.notify(`Task ${taskId} not found.`, "error");
+				return;
+			}
+			const diff = record.diff || "";
+			if (!diff.trim()) {
+				ctx.ui.notify(`Task ${taskId} produced no git diff.`, "info");
+			} else {
+				ctx.ui.notify(`Diff for ${taskId}:\n\n${diff}`, "info");
+			}
 		},
 	});
 
 	pi.registerCommand("approve", {
-		description: "Approve and merge Antigravity2 changes into the master workspace",
+		description: "Master approves worker diff and merges changes (/approve <task_id>)",
 		handler: async (args, ctx) => {
 			const taskId = args.trim();
 			if (!taskId) {
 				ctx.ui.notify("Usage: /approve <task_id>", "error");
 				return;
 			}
-			const res = await orchestrator.approveTask(taskId);
-			if (res.success) {
-				ctx.ui.notify(`Successfully merged changes from ${taskId}`, "info");
+			const result = await orchestrator.approveTask(taskId);
+			if (result.success) {
+				ctx.ui.notify(`Task ${taskId} approved! Changes merged into codebase.`, "info");
 			} else {
-				ctx.ui.notify(`Approval failed: ${res.error}`, "error");
+				ctx.ui.notify(`Approval rejected: ${result.message}`, "error");
 			}
 		},
 	});
 
 	pi.registerCommand("reject", {
-		description: "Reject Antigravity2 changes and clean up the worker workspace",
+		description: "Master rejects worker changes and removes workspace (/reject <task_id> [reason])",
 		handler: async (args, ctx) => {
-			const taskId = args.trim();
+			const parts = args.trim().split(/\s+/);
+			const taskId = parts[0];
+			const reason = parts.slice(1).join(" ") || "Rejected by Master";
 			if (!taskId) {
-				ctx.ui.notify("Usage: /reject <task_id>", "error");
+				ctx.ui.notify("Usage: /reject <task_id> [reason]", "error");
 				return;
 			}
-			const ok = await orchestrator.rejectTask(taskId);
-			if (ok) {
-				ctx.ui.notify(`Rejected task ${taskId} and cleaned up workspace.`, "info");
-			} else {
-				ctx.ui.notify(`Task ${taskId} not found.`, "error");
-			}
+			const result = await orchestrator.rejectTask(taskId, reason);
+			ctx.ui.notify(result.message, "info");
 		},
 	});
 }

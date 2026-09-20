@@ -1,26 +1,33 @@
 /**
- * Custom tools for Master Agent (Antigravity) to orchestrate Worker Agent (Antigravity2).
+ * Custom tools for Master Agent (Antigravity) to orchestrate Worker Agents and Security Auditor.
  */
 
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import type { Orchestrator } from "./orchestrator.ts";
+import { fetchAllAccountLimits } from "./quota.ts";
 
 export const ORCHESTRATOR_SYSTEM_PROMPT_GUIDELINES = [
-	"You are Antigravity, the MASTER software-engineering agent. You orchestrate an assistant worker agent named Antigravity2.",
-	"DELEGATION ECONOMICS: Delegate tasks ONLY when estimated_worker_value > delegation_overhead.",
-	"GOOD delegation candidates: investigating errors/logs, researching APIs, writing isolated tests, auditing specific classes, small isolated component refactors.",
-	"POOR delegation candidates: tiny edits, main core implementation, tightly coupled tasks requiring constant shared context, tasks modifying the exact same files as master.",
-	"FILE SAFETY: Antigravity2 runs in an isolated git workspace/worktree. Inspect worker results and diffs (using get_worker_diff) before approving (approve_worker_task) or rejecting (reject_worker_task).",
-	"Always maintain overall task ownership and run final verification tests before completing the user request.",
+	"You are the MASTER software-engineering agent. You orchestrate a pool of worker agents (Antigravity 2/3, xAI Grok) and a Security Auditor.",
+	"GENERAL CODING: You handle any programming language, stack, and software architecture.",
+	"DELEGATION ECONOMICS: Delegate tasks when estimated_worker_value > delegation_overhead.",
+	"GOOD delegation candidates: error/log investigation, API research, writing isolated unit/integration tests, auditing specific classes, refactoring standalone modules, security scans.",
+	"POOR delegation candidates: single-line edits, core architectural decisions, tightly coupled code requiring master's full attention.",
+	"FILE & SECURITY SAFETY: Workers run in isolated git worktrees. Diffs are audited by the Security Auditor (secret leaks, shell injection, OWASP flaws) before master approval.",
 ];
 
 export function createDelegateTaskTool(orchestrator: Orchestrator): ToolDefinition {
 	const schema = Type.Object({
-		title: Type.String({ description: "Short title describing the task for Antigravity2" }),
+		title: Type.String({ description: "Short title describing the task for the worker" }),
 		description: Type.String({
-			description: "Detailed instructions, error logs, requirements, and constraints for Antigravity2",
+			description: "Detailed instructions, error logs, requirements, and constraints for the worker",
 		}),
+		agent: Type.Optional(
+			Type.String({
+				description:
+					"Specific worker account to assign (e.g. 'google-antigravity-2', 'google-antigravity-3', 'xai'). If omitted, orchestrator auto-assigns.",
+			}),
+		),
 		scope: Type.Optional(
 			Type.Array(Type.String(), {
 				description: "Directories or file patterns within the worker's scope",
@@ -33,12 +40,12 @@ export function createDelegateTaskTool(orchestrator: Orchestrator): ToolDefiniti
 		),
 		run_tests: Type.Optional(
 			Type.Boolean({
-				description: "Whether Antigravity2 should execute verification tests in its workspace",
+				description: "Whether the worker should execute verification tests in its workspace",
 			}),
 		),
 		test_command: Type.Optional(
 			Type.String({
-				description: "Shell test command for the worker to execute (e.g. './gradlew test', 'npm test')",
+				description: "Shell test command for the worker to execute (e.g. 'npm test', './gradlew test', 'pytest')",
 			}),
 		),
 		timeout_ms: Type.Optional(
@@ -55,20 +62,30 @@ export function createDelegateTaskTool(orchestrator: Orchestrator): ToolDefiniti
 
 	return defineTool({
 		name: "delegate_task",
-		label: "Delegate Task to Antigravity2",
+		label: "Delegate Subtask to Worker Pool",
 		description:
-			"Delegate a narrowly scoped task (investigation, test writing, API research, isolated component) to worker agent Antigravity2.",
-		promptSnippet: "delegate_task - Delegate an isolated task to worker Antigravity2",
+			"Delegate a scoped coding subtask (investigation, test writing, standalone module, refactoring) to an available worker agent in an isolated workspace.",
+		promptSnippet: "delegate_task - Delegate an isolated coding subtask to a worker agent",
 		promptGuidelines: ORCHESTRATOR_SYSTEM_PROMPT_GUIDELINES,
 		parameters: schema,
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			const { title, description, scope, allowed_files, run_tests, test_command, timeout_ms, wait_for_result } =
-				params as Static<typeof schema>;
+			const {
+				title,
+				description,
+				agent,
+				scope,
+				allowed_files,
+				run_tests,
+				test_command,
+				timeout_ms,
+				wait_for_result,
+			} = params as Static<typeof schema>;
 
-			// Evaluate delegation economics
 			const evalResult = orchestrator.master.evaluateDelegation({
 				title,
 				description,
+				isTinyEdit: false,
+				requiresSharedContext: false,
 			});
 
 			if (!evalResult.shouldDelegate) {
@@ -76,85 +93,88 @@ export function createDelegateTaskTool(orchestrator: Orchestrator): ToolDefiniti
 					content: [
 						{
 							type: "text",
-							text: `Delegation Warning: ${evalResult.reason}\nMaster should consider handling this task directly unless strict isolation is required.`,
+							text: `Delegation not recommended by Master economics: ${evalResult.reason}. Execute this task directly in master session.`,
 						},
 					],
-					details: { warning: evalResult.reason },
+					details: { evalResult },
 				};
 			}
 
-			if (wait_for_result === false) {
-				const task = orchestrator.createTask({
+			const shouldWait = wait_for_result ?? true;
+			if (shouldWait) {
+				try {
+					const result = await orchestrator.delegateTask({
+						title,
+						description,
+						agent,
+						scope,
+						allowed_files,
+						run_tests,
+						test_command,
+						timeout_ms,
+					});
+
+					const secAudit = result.securityAudit
+						? `\nSecurity Audit (${result.securityAudit.auditedBy}): ${result.securityAudit.passed ? "PASSED [CLEAN]" : `FAILED [${result.securityAudit.severity.toUpperCase()}]`}\nFindings: ${result.securityAudit.findings.join("; ")}`
+						: "";
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Worker completed task [${result.task_id}].\nStatus: ${result.status}\nSummary: ${result.summary}\nFiles Changed: ${result.files_changed.join(", ") || "none"}\nPatch Available: ${result.patch_available ? "yes (inspect with get_worker_diff)" : "no"}${secAudit}`,
+							},
+						],
+						details: { result },
+					};
+				} catch (err: any) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Worker task failed with error: ${err.message}`,
+							},
+						],
+						details: { error: err.message },
+					};
+				}
+			} else {
+				const task = await orchestrator.createTask({
 					title,
 					description,
+					agent,
 					scope,
 					allowed_files,
 					run_tests,
 					test_command,
 					timeout_ms,
 				});
-				// Trigger execution asynchronously
-				void orchestrator.runTask(task.task_id);
+
+				void orchestrator.runWorkerTask(task.task_id);
 
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Task delegated asynchronously:\nTask ID: ${task.task_id}\nTitle: ${task.title}\nStatus: queued\nUse check_worker_task to inspect progress.`,
+							text: `Task [${task.task_id}] queued and executing in background with worker ${task.agent}. Use check_worker_task to poll progress.`,
 						},
 					],
-					details: { task_id: task.task_id, status: "queued" },
+					details: { task },
 				};
 			}
-
-			const result = await orchestrator.delegate({
-				title,
-				description,
-				scope,
-				allowed_files,
-				run_tests,
-				test_command,
-				timeout_ms,
-			});
-
-			const diff = await orchestrator.getDiff(result.task_id);
-			const review = orchestrator.master.reviewWorkerResult(result, diff);
-
-			let output = `[Antigravity2 Result for Task ${result.task_id}]\n`;
-			output += `Status: ${result.status}\n`;
-			output += `Summary: ${result.summary}\n`;
-			if (result.findings) output += `Findings:\n${result.findings}\n`;
-			if (result.files_changed && result.files_changed.length > 0) {
-				output += `Files Changed: ${result.files_changed.join(", ")}\n`;
-			}
-			if (result.tests) {
-				output += `Tests: ${result.tests.status} (${result.tests.command || "default"})\n`;
-				if (result.tests.output) output += `Test Output:\n${result.tests.output}\n`;
-			}
-			if (result.recommendation) output += `Recommendation: ${result.recommendation}\n`;
-			if (result.problems) output += `Problems Reported: ${result.problems}\n`;
-			if (diff) {
-				output += `\nPatch Available (use get_worker_diff to view full diff, approve_worker_task to integrate).\n`;
-			}
-			output += `\nMaster Review Assessment: ${review.action.toUpperCase()} (${review.feedback})\n`;
-
-			return {
-				content: [{ type: "text", text: output }],
-				details: { task_id: result.task_id, status: result.status, result },
-			};
 		},
 	});
 }
 
 export function createCheckWorkerTaskTool(orchestrator: Orchestrator): ToolDefinition {
 	const schema = Type.Object({
-		task_id: Type.String({ description: "Task ID (e.g. 'worker-001')" }),
+		task_id: Type.String({ description: "ID of the task to check (e.g. 'worker-001')" }),
 	});
 
 	return defineTool({
 		name: "check_worker_task",
-		label: "Check Worker Task",
-		description: "Check the status, output, and test results of a task delegated to Antigravity2.",
+		label: "Check Worker Task Status",
+		description: "Check the status, summary, and results of a delegated worker task.",
 		parameters: schema,
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const { task_id } = params as Static<typeof schema>;
@@ -162,27 +182,22 @@ export function createCheckWorkerTaskTool(orchestrator: Orchestrator): ToolDefin
 
 			if (!record) {
 				return {
-					content: [{ type: "text", text: `Task "${task_id}" not found.` }],
-					details: { found: false },
+					content: [{ type: "text", text: `Task ${task_id} not found.` }],
+					details: { notFound: true },
 				};
 			}
 
-			let text = `Task ID: ${record.task.task_id}\n`;
-			text += `Title: ${record.task.title}\n`;
-			text += `Status: ${record.status}\n`;
-			if (record.result) {
-				text += `Summary: ${record.result.summary}\n`;
-				if (record.result.findings) text += `Findings:\n${record.result.findings}\n`;
-				if (record.result.tests) {
-					text += `Tests: ${record.result.tests.status} (${record.result.tests.command})\n`;
-				}
-				if (record.result.files_changed?.length > 0) {
-					text += `Files changed: ${record.result.files_changed.join(", ")}\n`;
-				}
-			}
+			const sec = record.securityAudit
+				? `\nSecurity Audit: ${record.securityAudit.passed ? "PASSED" : "FAILED"} (${record.securityAudit.findings.join("; ")})`
+				: "";
 
 			return {
-				content: [{ type: "text", text }],
+				content: [
+					{
+						type: "text",
+						text: `Task [${task_id}] (${record.task.title})\nAgent: ${record.task.agent}\nStatus: ${record.status}\nSummary: ${record.result?.summary || "In progress"}\nFiles: ${record.result?.files_changed.join(", ") || "none"}${sec}`,
+					},
+				],
 				details: { record },
 			};
 		},
@@ -191,28 +206,114 @@ export function createCheckWorkerTaskTool(orchestrator: Orchestrator): ToolDefin
 
 export function createGetWorkerDiffTool(orchestrator: Orchestrator): ToolDefinition {
 	const schema = Type.Object({
-		task_id: Type.String({ description: "Task ID to inspect diff for" }),
+		task_id: Type.String({ description: "ID of the task to inspect diff for" }),
 	});
 
 	return defineTool({
 		name: "get_worker_diff",
-		label: "Get Worker Diff",
-		description: "Inspect the git diff and proposed changes generated by Antigravity2 in its isolated workspace.",
+		label: "Get Worker Git Diff",
+		description: "View the git diff produced by a worker in its isolated worktree.",
 		parameters: schema,
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const { task_id } = params as Static<typeof schema>;
-			const diff = await orchestrator.getDiff(task_id);
+			const record = orchestrator.getTask(task_id);
 
-			if (!diff || diff.trim().length === 0) {
+			if (!record) {
 				return {
-					content: [{ type: "text", text: `No file changes or diff available for task "${task_id}".` }],
-					details: { task_id, hasDiff: false },
+					content: [{ type: "text", text: `Task ${task_id} not found.` }],
+					details: { notFound: true },
+				};
+			}
+
+			const diff = record.diff || "";
+			if (!diff.trim()) {
+				return {
+					content: [{ type: "text", text: `Task ${task_id} produced no git changes (empty diff).` }],
+					details: { hasDiff: false },
 				};
 			}
 
 			return {
-				content: [{ type: "text", text: `--- Worker Workspace Diff [${task_id}] ---\n\n${diff}` }],
-				details: { task_id, hasDiff: true, diff },
+				content: [
+					{
+						type: "text",
+						text: `Git diff for task [${task_id}] (${record.task.title}):\n\n${diff}`,
+					},
+				],
+				details: { hasDiff: true },
+			};
+		},
+	});
+}
+
+export function createSecurityAuditTool(orchestrator: Orchestrator): ToolDefinition {
+	const schema = Type.Object({
+		task_id: Type.String({ description: "ID of the task to audit" }),
+	});
+
+	return defineTool({
+		name: "run_security_audit",
+		label: "Run Security Audit",
+		description:
+			"Perform a security vulnerability and secret leak scan on a worker's diff using the Security Auditor.",
+		parameters: schema,
+		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			const { task_id } = params as Static<typeof schema>;
+			const record = orchestrator.getTask(task_id);
+			if (!record) {
+				return {
+					content: [{ type: "text", text: `Task ${task_id} not found.` }],
+					details: { notFound: true },
+				};
+			}
+
+			const diff = record.diff || "";
+			const files = record.result?.files_changed || [];
+			const audit = await orchestrator.securityAuditor.auditDiff(diff, files, record.task.title);
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Security Audit Results for [${task_id}] (Audited by ${audit.auditedBy}):\nVerdict: ${audit.passed ? "PASSED [CLEAN]" : `FAILED [${audit.severity.toUpperCase()}]`}\nFindings:\n- ${audit.findings.join("\n- ")}\nRecommendations:\n- ${audit.recommendations.join("\n- ")}`,
+					},
+				],
+				details: { audit },
+			};
+		},
+	});
+}
+
+export function createAccountsStatusTool(_orchestrator: Orchestrator): ToolDefinition {
+	const schema = Type.Object({
+		force_refresh: Type.Optional(Type.Boolean({ description: "Force refresh quota from APIs" })),
+	});
+
+	return defineTool({
+		name: "get_accounts_status",
+		label: "Get Multi-Account Quotas",
+		description:
+			"Check real-time remaining 5-hour and weekly limits and reset countdowns for all configured accounts (Antigravity & xAI).",
+		parameters: schema,
+		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			const { force_refresh } = params as Static<typeof schema>;
+			const limits = await fetchAllAccountLimits(force_refresh ?? false);
+
+			const lines = limits.map((acc) => {
+				if (acc.provider === "xai") {
+					return `[${acc.accountId}] (xAI Grok): Status: ${acc.status}, Reset: ${acc.fiveHourReset || "ready"}`;
+				}
+				return `[${acc.accountId}] (${acc.label || "Antigravity"}): 5h Limit: ${acc.fiveHourRemaining ?? "--"}% (reset: ${acc.fiveHourReset || "ready"}), Weekly Limit: ${acc.weeklyRemaining ?? "--"}% (reset: ${acc.weeklyReset || "ready"}), Status: ${acc.status}`;
+			});
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Configured Accounts & Live Quotas:\n${lines.join("\n")}`,
+					},
+				],
+				details: { limits },
 			};
 		},
 	});
@@ -220,35 +321,29 @@ export function createGetWorkerDiffTool(orchestrator: Orchestrator): ToolDefinit
 
 export function createApproveWorkerTaskTool(orchestrator: Orchestrator): ToolDefinition {
 	const schema = Type.Object({
-		task_id: Type.String({ description: "Task ID whose changes should be approved and integrated" }),
+		task_id: Type.String({ description: "ID of the task to approve" }),
+		review_notes: Type.Optional(Type.String({ description: "Master review notes explaining the approval" })),
 	});
 
 	return defineTool({
 		name: "approve_worker_task",
-		label: "Approve Worker Task",
-		description: "Approve and integrate Antigravity2's verified workspace changes into the master working directory.",
+		label: "Approve and Merge Worker Task",
+		description:
+			"Master approves worker changes and safely merges them into the main codebase after reviewing diff and security checks.",
 		parameters: schema,
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			const { task_id } = params as Static<typeof schema>;
-			const res = await orchestrator.approveTask(task_id);
-
-			if (!res.success) {
-				return {
-					content: [{ type: "text", text: `Approval and integration failed: ${res.error}` }],
-					details: { success: false, error: res.error },
-				};
-			}
-
+			const { task_id, review_notes } = params as Static<typeof schema>;
+			const result = await orchestrator.approveTask(task_id, review_notes);
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Successfully approved and integrated worker changes for "${task_id}".\nFiles updated: ${
-							res.filesChanged?.join(", ") || "none"
-						}`,
+						text: result.success
+							? `Approved and merged task ${task_id}.`
+							: `Approval rejected: ${result.message}`,
 					},
 				],
-				details: { success: true, filesChanged: res.filesChanged },
+				details: { result },
 			};
 		},
 	});
@@ -256,73 +351,34 @@ export function createApproveWorkerTaskTool(orchestrator: Orchestrator): ToolDef
 
 export function createRejectWorkerTaskTool(orchestrator: Orchestrator): ToolDefinition {
 	const schema = Type.Object({
-		task_id: Type.String({ description: "Task ID whose changes should be rejected" }),
-		reason: Type.Optional(Type.String({ description: "Reason for rejecting worker output" })),
+		task_id: Type.String({ description: "ID of the task to reject" }),
+		reason: Type.String({ description: "Master reason for rejecting worker changes" }),
 	});
 
 	return defineTool({
 		name: "reject_worker_task",
 		label: "Reject Worker Task",
-		description: "Reject Antigravity2's proposed changes and safely clean up the isolated worker workspace.",
+		description: "Master rejects worker changes and discards the isolated worktree without merging.",
 		parameters: schema,
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const { task_id, reason } = params as Static<typeof schema>;
-			const ok = await orchestrator.rejectTask(task_id, reason);
-
-			if (!ok) {
-				return {
-					content: [{ type: "text", text: `Task "${task_id}" not found or could not be rejected.` }],
-					details: { success: false },
-				};
-			}
-
+			const result = await orchestrator.rejectTask(task_id, reason);
 			return {
-				content: [
-					{
-						type: "text",
-						text: `Worker task "${task_id}" rejected and workspace cleaned up. Reason: ${reason || "None specified"}.`,
-					},
-				],
-				details: { success: true, reason },
+				content: [{ type: "text", text: result.message }],
+				details: { result },
 			};
 		},
 	});
 }
 
-export function createCancelWorkerTaskTool(orchestrator: Orchestrator): ToolDefinition {
-	const schema = Type.Object({
-		task_id: Type.String({ description: "Task ID to cancel" }),
-	});
-
-	return defineTool({
-		name: "cancel_worker_task",
-		label: "Cancel Worker Task",
-		description: "Cancel a running or queued worker task.",
-		parameters: schema,
-		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			const { task_id } = params as Static<typeof schema>;
-			const ok = await orchestrator.cancelTask(task_id);
-
-			return {
-				content: [
-					{
-						type: "text",
-						text: ok ? `Task "${task_id}" cancelled successfully.` : `Task "${task_id}" not found.`,
-					},
-				],
-				details: { success: ok },
-			};
-		},
-	});
-}
-
-export function getOrchestratorTools(orchestrator: Orchestrator): ToolDefinition[] {
+export function registerOrchestratorTools(orchestrator: Orchestrator): ToolDefinition[] {
 	return [
 		createDelegateTaskTool(orchestrator),
 		createCheckWorkerTaskTool(orchestrator),
 		createGetWorkerDiffTool(orchestrator),
+		createSecurityAuditTool(orchestrator),
+		createAccountsStatusTool(orchestrator),
 		createApproveWorkerTaskTool(orchestrator),
 		createRejectWorkerTaskTool(orchestrator),
-		createCancelWorkerTaskTool(orchestrator),
 	];
 }

@@ -31,6 +31,7 @@
 			"packages/session-backends/*/test/**/*.ts",
 			"packages/coding-agent/examples/**/*.ts",
 			"!**/node_modules/**/*",
+			"!**/.pi/**/*",
 			"!**/test-sessions.ts",
 			"!**/models.generated.ts",
 			"!**/*.models.ts",

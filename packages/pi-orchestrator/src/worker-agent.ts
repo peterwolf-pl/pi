@@ -51,11 +51,29 @@ Provide a clear structured report containing:
 `;
 	}
 
+	buildWorkerPrompt(task: WorkerTask, workspacePath?: string): string {
+		const base = this.buildIsolatedPrompt(task);
+		return workspacePath ? `${base}\nWorkspace Directory: ${workspacePath}` : base;
+	}
+
 	async executeTask(
 		task: WorkerTask,
-		workspace: WorkerWorkspace,
+		workspaceOrPath: WorkerWorkspace | string,
 		options?: WorkerExecutionOptions,
 	): Promise<TaskResult> {
+		const workspace: WorkerWorkspace =
+			typeof workspaceOrPath === "string"
+				? {
+						taskId: task.task_id,
+						workspacePath: workspaceOrPath,
+						isGit: false,
+						initialStatus: "",
+						getDiff: async () => "",
+						getStatus: async () => "",
+						applyToTarget: async () => ({ success: true }),
+						cleanup: async () => {},
+					}
+				: workspaceOrPath;
 		this.setStatus("running");
 		this.setActivity(task.title);
 		this.clearSubtasks();

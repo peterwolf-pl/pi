@@ -112,6 +112,18 @@ export class OrchestratorLogger {
 		this.writeToFile("orchestration.log", entry);
 	}
 
+	master(level: "INFO" | "WARN" | "ERROR" | "DEBUG", message: string): void {
+		this.logMaster(message, undefined, level);
+	}
+
+	worker(level: "INFO" | "WARN" | "ERROR" | "DEBUG", message: string, taskId?: string): void {
+		this.logWorker(taskId || "general", message, undefined, level);
+	}
+
+	orchestration(level: "INFO" | "WARN" | "ERROR" | "DEBUG", message: string, taskId?: string): void {
+		this.logOrchestration("general", message, taskId, undefined, level);
+	}
+
 	readLogFile(filename: "master.log" | "worker.log" | "orchestration.log"): string {
 		const filePath = join(this.logDir, filename);
 		if (existsSync(filePath)) {

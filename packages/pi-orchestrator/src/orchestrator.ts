@@ -1,15 +1,20 @@
 /**
  * Central Orchestrator for PWPI Multi-Agent Architecture.
- * Coordinates Antigravity (Master) and Antigravity2 (Worker).
+ * Coordinates Master, Multiple Workers (Antigravity 1/2/3, xAI),
+ * and dedicated Security Auditor.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_DIR_NAME, loadOrchestratorConfig } from "./config.ts";
+import { CONFIG_DIR_NAME, loadOrchestratorConfig, saveOrchestratorConfig } from "./config.ts";
 import { FileOwnershipManager } from "./file-ownership.ts";
 import { OrchestratorLogger } from "./logger.ts";
 import { MasterAgent } from "./master-agent.ts";
+import { fetchAllAccountLimits } from "./quota.ts";
+import { SecurityAuditor } from "./security-auditor.ts";
 import type {
+	AccountLimits,
+	AgentInfo,
 	MainTaskInfo,
 	OrchestratorConfig,
 	OrchestratorEvent,
@@ -24,6 +29,7 @@ import { type WorkerWorkspace, WorkspaceManager } from "./workspace.ts";
 export interface CreateTaskParams {
 	title: string;
 	description: string;
+	agent?: string; // target worker account ID
 	scope?: string[];
 	allowed_files?: string[];
 	run_tests?: boolean;
@@ -38,9 +44,10 @@ export class Orchestrator {
 	readonly logger: OrchestratorLogger;
 	readonly fileOwnership: FileOwnershipManager;
 	readonly workspaceManager: WorkspaceManager;
+	readonly securityAuditor: SecurityAuditor;
 
-	readonly master: MasterAgent;
-	readonly worker: WorkerAgent;
+	private masterAgent: MasterAgent;
+	private readonly workerAgents: Map<string, WorkerAgent> = new Map();
 
 	private mainTask?: MainTaskInfo;
 	private readonly tasks: Map<string, WorkerTaskRecord> = new Map();
@@ -55,9 +62,83 @@ export class Orchestrator {
 		this.fileOwnership = new FileOwnershipManager(cwd);
 		this.workspaceManager = new WorkspaceManager(cwd);
 
-		this.master = new MasterAgent(this.config.agents.master);
-		this.worker = new WorkerAgent(this.config.agents.worker);
+		this.masterAgent = new MasterAgent(this.config.masterAccount);
+		this.securityAuditor = new SecurityAuditor(
+			this.config.securityAuditorAccount,
+			this.config.securityAuditorEnabled,
+		);
+
+		// Initialize worker agents
+		for (const workerId of this.config.activeWorkers) {
+			this.workerAgents.set(workerId, new WorkerAgent(workerId));
+		}
+
 		this.loadState();
+	}
+
+	public get master(): MasterAgent {
+		return this.masterAgent;
+	}
+
+	public get worker(): WorkerAgent {
+		// Return first active worker or fallback
+		const first = this.workerAgents.values().next().value;
+		return first || new WorkerAgent(this.config.activeWorkers[0] || "worker");
+	}
+
+	public getWorkerAgent(workerId: string): WorkerAgent {
+		let agent = this.workerAgents.get(workerId);
+		if (!agent) {
+			agent = new WorkerAgent(workerId);
+			this.workerAgents.set(workerId, agent);
+		}
+		return agent;
+	}
+
+	public setMasterAccount(accountId: string): void {
+		this.config.masterAccount = accountId;
+		this.masterAgent = new MasterAgent(accountId);
+		// Remove from active workers if it was one
+		this.config.activeWorkers = this.config.activeWorkers.filter((id) => id !== accountId);
+		saveOrchestratorConfig(this.config, this.cwd);
+		this.emitEvent({
+			type: "account_switched",
+			agentName: accountId,
+			timestamp: Date.now(),
+			data: { role: "master" },
+		});
+	}
+
+	public setSecurityAuditor(accountId: string, enabled: boolean): void {
+		this.config.securityAuditorAccount = accountId;
+		this.config.securityAuditorEnabled = enabled;
+		this.securityAuditor.setAuditorAccount(accountId);
+		this.securityAuditor.setEnabled(enabled);
+		saveOrchestratorConfig(this.config, this.cwd);
+		this.emitEvent({
+			type: "account_switched",
+			agentName: accountId,
+			timestamp: Date.now(),
+			data: { role: "security_auditor", enabled },
+		});
+	}
+
+	public toggleWorkerAccount(accountId: string, enabled?: boolean): void {
+		const isCurrentlyActive = this.config.activeWorkers.includes(accountId);
+		const targetState = enabled !== undefined ? enabled : !isCurrentlyActive;
+
+		if (targetState && !isCurrentlyActive) {
+			this.config.activeWorkers.push(accountId);
+			this.workerAgents.set(accountId, new WorkerAgent(accountId));
+		} else if (!targetState && isCurrentlyActive) {
+			this.config.activeWorkers = this.config.activeWorkers.filter((id) => id !== accountId);
+			this.workerAgents.delete(accountId);
+		}
+		saveOrchestratorConfig(this.config, this.cwd);
+	}
+
+	public getActiveWorkers(): string[] {
+		return [...this.config.activeWorkers];
 	}
 
 	private getStateFilePath(): string {
@@ -77,75 +158,99 @@ export class Orchestrator {
 					diff: v.diff,
 					workspacePath: v.workspacePath,
 					error: v.error,
+					securityAudit: v.securityAudit,
 				},
 			]);
-			const data = {
-				mainTask: this.mainTask,
-				taskCounter: this.taskCounter,
-				tasks: serializableTasks,
-			};
-			writeFileSync(this.getStateFilePath(), JSON.stringify(data, null, 2), "utf-8");
+			writeFileSync(
+				this.getStateFilePath(),
+				JSON.stringify(
+					{
+						taskCounter: this.taskCounter,
+						mainTask: this.mainTask,
+						tasks: serializableTasks,
+					},
+					null,
+					2,
+				),
+				"utf-8",
+			);
 		} catch {
-			// ignore
+			// Best-effort
 		}
 	}
 
 	private loadState(): void {
 		try {
-			const path = this.getStateFilePath();
-			if (existsSync(path)) {
-				const raw = readFileSync(path, "utf-8");
-				const data = JSON.parse(raw);
-				if (data.mainTask) {
-					this.mainTask = data.mainTask;
-				}
-				if (typeof data.taskCounter === "number") {
-					this.taskCounter = data.taskCounter;
-				}
-				if (Array.isArray(data.tasks)) {
-					for (const [k, v] of data.tasks) {
-						this.tasks.set(k, v);
-					}
+			const filePath = this.getStateFilePath();
+			if (!existsSync(filePath)) return;
+			const data = JSON.parse(readFileSync(filePath, "utf-8"));
+			if (data.taskCounter) this.taskCounter = data.taskCounter;
+			if (data.mainTask) this.mainTask = data.mainTask;
+			if (Array.isArray(data.tasks)) {
+				for (const [k, v] of data.tasks) {
+					this.tasks.set(k, v);
 				}
 			}
 		} catch {
-			// ignore
+			// Best-effort
 		}
 	}
 
-	setMainTask(title: string, description?: string): void {
+	public addEventListener(listener: (event: OrchestratorEvent) => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	private emitEvent(event: OrchestratorEvent): void {
+		for (const listener of this.listeners) {
+			try {
+				listener(event);
+			} catch (e) {
+				console.error("Error in orchestrator event listener:", e);
+			}
+		}
+	}
+
+	public setMainTask(title: string, description?: string): void {
 		this.mainTask = {
 			title,
 			description,
 			status: "running",
 		};
-		this.master.setActivity(`Working on main task: ${title}`);
-		this.master.setStatus("running");
-		this.logger.logOrchestration("main_task_updated", `Main task set: "${title}"`);
-		this.saveState();
-		this.emit({
+		this.master.setStatus("running", `Working on main task: ${title}`);
+		this.logger.orchestration("INFO", `Main task set: "${title}"`);
+		this.emitEvent({
 			type: "main_task_updated",
 			timestamp: Date.now(),
 			data: this.mainTask,
 		});
+		this.saveState();
 	}
 
-	getMainTask(): MainTaskInfo | undefined {
+	public getMainTask(): MainTaskInfo | undefined {
 		return this.mainTask;
 	}
 
-	createTask(params: CreateTaskParams): WorkerTask {
+	public async createTask(params: CreateTaskParams): Promise<WorkerTask> {
 		this.taskCounter++;
 		const taskId = params.taskId || `worker-${String(this.taskCounter).padStart(3, "0")}`;
 
+		// Select worker agent (explicit or round-robin)
+		let targetAgent = params.agent;
+		if (!targetAgent || !this.config.activeWorkers.includes(targetAgent)) {
+			// Select least busy worker
+			const active = this.config.activeWorkers;
+			targetAgent = active.length > 0 ? active[(this.taskCounter - 1) % active.length] : "worker";
+		}
+
 		const task: WorkerTask = {
-			agent: this.worker.name,
+			agent: targetAgent,
 			task_id: taskId,
 			title: params.title,
 			description: params.description,
 			scope: params.scope,
 			allowed_files: params.allowed_files,
-			run_tests: params.run_tests,
+			run_tests: params.run_tests ?? false,
 			test_command: params.test_command,
 			timeout_ms: params.timeout_ms ?? this.config.delegation.default_timeout_ms,
 			createdAt: Date.now(),
@@ -157,256 +262,304 @@ export class Orchestrator {
 		};
 
 		this.tasks.set(taskId, record);
-		if (params.allowed_files) {
-			this.fileOwnership.assignWorkerFiles(taskId, params.allowed_files);
-		}
+		this.logger.orchestration(
+			"INFO",
+			`[EVENT:task_created] Task ${taskId} created: "${params.title}" -> assigned to ${targetAgent}`,
+		);
 
-		this.logger.logOrchestration("task_created", `Task ${taskId} created: "${task.title}"`, taskId);
-		this.saveState();
-		this.emit({
+		this.emitEvent({
 			type: "task_created",
 			taskId,
-			agentName: this.worker.name,
+			agentName: targetAgent,
 			timestamp: Date.now(),
 			data: task,
 		});
 
+		this.saveState();
 		return task;
 	}
 
-	async runTask(taskId: string, options?: WorkerExecutionOptions): Promise<TaskResult> {
+	public async runWorkerTask(taskId: string, options: WorkerExecutionOptions = {}): Promise<TaskResult> {
 		const record = this.tasks.get(taskId);
 		if (!record) {
-			throw new Error(`Worker task "${taskId}" not found`);
+			throw new Error(`Task ${taskId} not found`);
 		}
 
+		const task = record.task;
+		const workerAgent = this.getWorkerAgent(task.agent);
+
 		record.status = "running";
-		this.emit({
+		record.task.startedAt = Date.now();
+		workerAgent.setStatus("running", `Executing: ${task.title}`);
+
+		this.emitEvent({
 			type: "task_started",
 			taskId,
-			agentName: this.worker.name,
+			agentName: task.agent,
 			timestamp: Date.now(),
 		});
 
-		// Create isolated workspace
-		const workspace = await this.workspaceManager.createWorkerWorkspace(taskId, record.task.scope);
-		this.workspaces.set(taskId, workspace);
-		record.workspacePath = workspace.workspacePath;
-
+		let workspace: WorkerWorkspace;
 		try {
-			const result = await this.worker.executeTask(record.task, workspace, {
-				logger: this.logger,
-				fileOwnership: this.fileOwnership,
-				runTurn: options?.runTurn,
-			});
+			workspace = await this.workspaceManager.createWorkspace(taskId);
+			this.workspaces.set(taskId, workspace);
+			record.workspacePath = workspace.workspacePath;
+		} catch (err: any) {
+			record.status = "failed";
+			record.error = `Failed to create workspace: ${err.message}`;
+			workerAgent.setStatus("failed", record.error);
+			this.saveState();
+			throw err;
+		}
+
+		let result: TaskResult;
+		try {
+			result = await workerAgent.executeTask(task, workspace, options);
+
+			let diff = "";
+			try {
+				diff = await this.workspaceManager.getDiff(taskId);
+				record.diff = diff;
+				if (diff && diff.trim().length > 0) {
+					result.patch_available = true;
+					result.patch = diff;
+				}
+			} catch {
+				// No diff
+			}
+
+			// Run Security Auditor check if enabled
+			if (this.securityAuditor.isEnabled()) {
+				this.emitEvent({
+					type: "security_audit_started",
+					taskId,
+					agentName: this.securityAuditor.getAuditorAccount(),
+					timestamp: Date.now(),
+				});
+
+				const audit = await this.securityAuditor.auditDiff(diff, result.files_changed, task.title);
+
+				record.securityAudit = audit;
+				result.securityAudit = audit;
+
+				this.logger.orchestration(
+					audit.passed ? "INFO" : "WARN",
+					`Security Audit for ${taskId} (${audit.auditedBy}): ${audit.passed ? "PASSED" : "FAILED"} [severity: ${audit.severity}]`,
+				);
+
+				this.emitEvent({
+					type: "security_audit_completed",
+					taskId,
+					agentName: audit.auditedBy,
+					timestamp: Date.now(),
+					data: audit,
+				});
+
+				if (!audit.passed && this.config.review.require_security_approval) {
+					record.status = "security_failed";
+					result.status = "security_failed";
+					workerAgent.setStatus("failed", `Security audit failed: ${audit.findings[0]}`);
+					this.saveState();
+					return result;
+				}
+			}
 
 			record.result = result;
 			record.status = result.status;
-			record.diff = await workspace.getDiff();
-			this.saveState();
+			record.task.completedAt = Date.now();
 
-			this.emit({
-				type: result.status === "completed" ? "task_completed" : "task_failed",
+			workerAgent.setStatus("idle", `Completed: ${task.title}`);
+			this.logger.orchestration(
+				"INFO",
+				`Task ${taskId} completed by ${task.agent}. Files changed: ${result.files_changed.length}`,
+			);
+
+			this.emitEvent({
+				type: "task_completed",
 				taskId,
-				agentName: this.worker.name,
+				agentName: task.agent,
 				timestamp: Date.now(),
 				data: result,
 			});
-
-			return result;
-		} catch (error: unknown) {
-			const errMsg = error instanceof Error ? error.message : String(error);
+		} catch (err: any) {
 			record.status = "failed";
-			record.error = errMsg;
-			const failedResult: TaskResult = {
+			record.error = err.message;
+			workerAgent.setStatus("failed", err.message);
+
+			result = {
 				task_id: taskId,
 				status: "failed",
-				summary: `Worker task failed unexpectedly: ${errMsg}`,
+				summary: `Task execution failed: ${err.message}`,
 				files_changed: [],
-				problems: errMsg,
-				patch_available: false,
+				error: err.message,
 			};
-			record.result = failedResult;
+			record.result = result;
 
-			this.emit({
+			this.emitEvent({
 				type: "task_failed",
 				taskId,
-				agentName: this.worker.name,
+				agentName: task.agent,
 				timestamp: Date.now(),
-				data: failedResult,
+				data: { error: err.message },
 			});
-
-			return failedResult;
 		}
-	}
 
-	async delegate(params: CreateTaskParams, options?: WorkerExecutionOptions): Promise<TaskResult> {
-		const task = this.createTask(params);
-		this.master.setActivity(`waiting for worker ${task.agent} on [${task.task_id}]`);
-		this.master.addSubtask(`delegated ${task.task_id}: ${task.title}`);
-
-		return this.runTask(task.task_id, options);
-	}
-
-	async cancelTask(taskId: string): Promise<boolean> {
-		const record = this.tasks.get(taskId);
-		if (!record) return false;
-
-		record.status = "cancelled";
-		const workspace = this.workspaces.get(taskId);
-		if (workspace) {
-			await workspace.cleanup();
-			this.workspaces.delete(taskId);
-		}
-		this.fileOwnership.clearWorkerFiles(taskId);
-
-		this.logger.logOrchestration("task_cancelled", `Task ${taskId} cancelled`, taskId);
 		this.saveState();
-		this.emit({
-			type: "task_cancelled",
-			taskId,
-			agentName: this.worker.name,
-			timestamp: Date.now(),
-		});
-
-		return true;
+		return result;
 	}
 
-	async getDiff(taskId: string): Promise<string> {
-		const record = this.tasks.get(taskId);
-		if (!record) return "";
-
-		if (record.diff) return record.diff;
-
-		const workspace = this.workspaces.get(taskId);
-		if (workspace) {
-			const diff = await workspace.getDiff();
-			record.diff = diff;
-			return diff;
-		}
-
-		return "";
+	public async delegateTask(params: CreateTaskParams, options: WorkerExecutionOptions = {}): Promise<TaskResult> {
+		const task = await this.createTask(params);
+		return this.runWorkerTask(task.task_id, options);
 	}
 
-	async approveTask(taskId: string): Promise<{ success: boolean; error?: string; filesChanged?: string[] }> {
+	public async approveTask(taskId: string, reviewNotes?: string): Promise<{ success: boolean; message: string }> {
 		const record = this.tasks.get(taskId);
 		if (!record) {
-			return { success: false, error: `Task "${taskId}" not found` };
+			return { success: false, message: `Task ${taskId} not found` };
 		}
 
-		const workspace = this.workspaces.get(taskId);
-		if (!workspace) {
-			return { success: false, error: `No active workspace found for task "${taskId}"` };
+		if (record.status === "security_failed") {
+			return {
+				success: false,
+				message: `Cannot approve task ${taskId}: Security audit flagged critical issues! Run audit review or reject task.`,
+			};
 		}
 
-		this.master.setStatus("reviewing");
-		this.master.setActivity(`integrating approved changes for ${taskId}`);
+		const diff = record.diff || "";
+		if (diff.trim().length > 0) {
+			const filesChanged = record.result?.files_changed || [];
+			const ownershipCheck = this.fileOwnership.canWorkerModify(filesChanged);
+			if (!ownershipCheck.allowed) {
+				return {
+					success: false,
+					message: `Approval rejected by FileOwnershipManager: ${ownershipCheck.reason}`,
+				};
+			}
 
-		const applyResult = await workspace.applyToTarget(this.cwd);
-		if (!applyResult.success) {
-			this.master.setStatus("idle");
-			return applyResult;
+			try {
+				await this.workspaceManager.applyToTarget(taskId);
+				this.logger.master("INFO", `Master approved task ${taskId} changes. ${reviewNotes || ""}`);
+			} catch (err: any) {
+				return {
+					success: false,
+					message: `Failed to apply worker changes: ${err.message}`,
+				};
+			}
 		}
 
 		record.status = "completed";
-		this.logger.logOrchestration(
-			"task_approved",
-			`Task ${taskId} changes approved and integrated by Master`,
-			taskId,
-			{ filesChanged: applyResult.filesChanged },
-		);
-		this.saveState();
-
-		await workspace.cleanup();
-		this.workspaces.delete(taskId);
-		this.fileOwnership.clearWorkerFiles(taskId);
-
-		this.master.setStatus("idle");
-		this.master.setActivity(undefined);
-
-		this.emit({
+		this.emitEvent({
 			type: "task_approved",
 			taskId,
 			timestamp: Date.now(),
-			data: applyResult,
+			data: { reviewNotes },
 		});
 
-		return applyResult;
+		try {
+			await this.workspaceManager.cleanupWorkspace(taskId);
+		} catch {
+			// ignore cleanup errors
+		}
+
+		this.saveState();
+		return { success: true, message: `Task ${taskId} successfully approved and merged.` };
 	}
 
-	async rejectTask(taskId: string, reason?: string): Promise<boolean> {
+	public async rejectTask(taskId: string, reason: string): Promise<{ success: boolean; message: string }> {
 		const record = this.tasks.get(taskId);
-		if (!record) return false;
+		if (!record) {
+			return { success: false, message: `Task ${taskId} not found` };
+		}
 
 		record.status = "cancelled";
-		const workspace = this.workspaces.get(taskId);
-		if (workspace) {
-			await workspace.cleanup();
-			this.workspaces.delete(taskId);
-		}
-		this.fileOwnership.clearWorkerFiles(taskId);
+		record.error = `Rejected by Master: ${reason}`;
+		this.logger.master("WARN", `Master rejected task ${taskId}: ${reason}`);
 
-		this.logger.logOrchestration(
-			"task_rejected",
-			`Task ${taskId} rejected by Master: ${reason || "No reason given"}`,
-			taskId,
-		);
-		this.saveState();
-
-		this.emit({
+		this.emitEvent({
 			type: "task_rejected",
 			taskId,
 			timestamp: Date.now(),
 			data: { reason },
 		});
 
-		return true;
+		try {
+			await this.workspaceManager.cleanupWorkspace(taskId);
+		} catch {
+			// ignore cleanup errors
+		}
+
+		this.saveState();
+		return { success: true, message: `Task ${taskId} rejected. Workspace cleaned.` };
 	}
 
-	getTask(taskId: string): WorkerTaskRecord | undefined {
-		return this.tasks.get(taskId);
+	public async getStatus(forceRefreshQuotas = false): Promise<OrchestratorStatus> {
+		const workersList: AgentInfo[] = [];
+		for (const [id, agent] of this.workerAgents) {
+			workersList.push({
+				name: id,
+				accountId: id,
+				role: "worker",
+				status: agent.status,
+				currentActivity: agent.currentActivity,
+				subtasks: [],
+			});
+		}
+
+		const securityAuditorInfo: AgentInfo = {
+			name: this.securityAuditor.getAuditorAccount(),
+			accountId: this.securityAuditor.getAuditorAccount(),
+			role: "security_auditor",
+			status: this.securityAuditor.isEnabled() ? "idle" : "idle",
+			currentActivity: this.securityAuditor.isEnabled() ? "Active / Monitoring code changes" : "Disabled",
+			subtasks: [],
+		};
+
+		let accountsLimits: AccountLimits[] = [];
+		try {
+			accountsLimits = await fetchAllAccountLimits(forceRefreshQuotas);
+			// Mark roles
+			for (const acc of accountsLimits) {
+				acc.isMaster = acc.accountId === this.config.masterAccount;
+				acc.isSecurityAuditor = acc.accountId === this.config.securityAuditorAccount;
+				if (acc.isMaster) {
+					acc.role = "master";
+				} else if (acc.isSecurityAuditor) {
+					acc.role = "security_auditor";
+				} else if (this.config.activeWorkers.includes(acc.accountId)) {
+					acc.role = "worker";
+				} else {
+					acc.role = "idle";
+				}
+			}
+		} catch {
+			// best effort
+		}
+
+		return {
+			mainTask: this.mainTask,
+			master: {
+				name: this.config.masterAccount,
+				accountId: this.config.masterAccount,
+				role: "master",
+				status: this.master.status,
+				currentActivity: this.master.currentActivity,
+				subtasks: [],
+			},
+			workers: workersList,
+			securityAuditor: securityAuditorInfo,
+			tasks: Array.from(this.tasks.values()),
+			agentsCount: 1 + workersList.length + (this.securityAuditor.isEnabled() ? 1 : 0),
+			accounts: accountsLimits,
+			securityAuditEnabled: this.securityAuditor.isEnabled(),
+		};
 	}
 
-	getAllTasks(): WorkerTaskRecord[] {
+	public getTasks(): WorkerTaskRecord[] {
 		return Array.from(this.tasks.values());
 	}
 
-	getStatus(): OrchestratorStatus {
-		return {
-			mainTask: this.mainTask,
-			master: this.master.getInfo(),
-			workers: [this.worker.getInfo()],
-			tasks: this.getAllTasks(),
-			agentsCount: 2,
-		};
+	public getTask(taskId: string): WorkerTaskRecord | undefined {
+		return this.tasks.get(taskId);
 	}
-
-	subscribe(listener: (event: OrchestratorEvent) => void): () => void {
-		this.listeners.add(listener);
-		return () => {
-			this.listeners.delete(listener);
-		};
-	}
-
-	private emit(event: OrchestratorEvent): void {
-		for (const listener of this.listeners) {
-			try {
-				listener(event);
-			} catch {
-				// Ignore listener exceptions
-			}
-		}
-	}
-}
-
-// Global orchestrator instance per cwd
-const orchestratorRegistry: Map<string, Orchestrator> = new Map();
-
-export function getOrchestrator(cwd: string = process.cwd()): Orchestrator {
-	let instance = orchestratorRegistry.get(cwd);
-	if (!instance) {
-		instance = new Orchestrator(cwd);
-		orchestratorRegistry.set(cwd, instance);
-	}
-	return instance;
 }

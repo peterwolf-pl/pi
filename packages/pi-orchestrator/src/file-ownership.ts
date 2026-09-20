@@ -33,6 +33,12 @@ export class FileOwnershipManager {
 		}
 	}
 
+	claimFile(filePath: string, owner: "master" | "worker" = "master"): void {
+		if (owner === "master") {
+			this.masterFiles.add(this.normalize(filePath));
+		}
+	}
+
 	assignWorkerFiles(taskId: string, files: string[]): void {
 		const set = this.workerAllowedFiles.get(taskId) ?? new Set();
 		for (const file of files) {
@@ -97,5 +103,15 @@ export class FileOwnershipManager {
 			isReadOnly: false,
 			owner: "worker",
 		};
+	}
+
+	canWorkerModify(files: string[], taskId = "general"): { allowed: boolean; reason?: string } {
+		for (const file of files) {
+			const decision = this.checkWorkerFileAccess(taskId, file, true);
+			if (!decision.allowed) {
+				return { allowed: false, reason: decision.reason };
+			}
+		}
+		return { allowed: true };
 	}
 }

@@ -28,8 +28,11 @@ export abstract class Agent {
 		return this._subtasks;
 	}
 
-	setStatus(status: AgentState): void {
+	setStatus(status: AgentState, activity?: string): void {
 		this._status = status;
+		if (activity !== undefined) {
+			this._currentActivity = activity;
+		}
 	}
 
 	setActivity(activity?: string): void {
@@ -47,6 +50,7 @@ export abstract class Agent {
 	getInfo(): AgentInfo {
 		return {
 			name: this.name,
+			accountId: this.name,
 			role: this.role,
 			status: this._status,
 			currentActivity: this._currentActivity,

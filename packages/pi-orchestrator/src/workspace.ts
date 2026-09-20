@@ -29,11 +29,38 @@ export class WorkspaceManager {
 	private readonly baseCwd: string;
 	private readonly isGit: boolean;
 	private readonly worktreeBaseDir: string;
+	private readonly activeWorkspaces: Map<string, WorkerWorkspace> = new Map();
 
 	constructor(baseCwd: string = process.cwd()) {
 		this.baseCwd = resolve(baseCwd);
 		this.isGit = this.checkIsGitRepo(this.baseCwd);
 		this.worktreeBaseDir = join(this.baseCwd, CONFIG_DIR_NAME, "worktrees");
+	}
+
+	async createWorkspace(taskId: string, scope?: string[]): Promise<WorkerWorkspace> {
+		const ws = await this.createWorkerWorkspace(taskId, scope);
+		this.activeWorkspaces.set(taskId, ws);
+		return ws;
+	}
+
+	async getDiff(taskId: string): Promise<string> {
+		const ws = this.activeWorkspaces.get(taskId);
+		if (!ws) return "";
+		return ws.getDiff();
+	}
+
+	async applyToTarget(taskId: string, targetCwd: string = this.baseCwd): Promise<void> {
+		const ws = this.activeWorkspaces.get(taskId);
+		if (!ws) throw new Error(`Workspace for ${taskId} not found`);
+		await ws.applyToTarget(targetCwd);
+	}
+
+	async cleanupWorkspace(taskId: string): Promise<void> {
+		const ws = this.activeWorkspaces.get(taskId);
+		if (ws) {
+			await ws.cleanup();
+			this.activeWorkspaces.delete(taskId);
+		}
 	}
 
 	private checkIsGitRepo(cwd: string): boolean {
@@ -90,6 +117,7 @@ export class WorkspaceManager {
 		}
 
 		const baseCwd = this.baseCwd;
+		const defaultTargetCwd = baseCwd;
 
 		return {
 			taskId,
@@ -131,7 +159,7 @@ export class WorkspaceManager {
 				return (res.stdout || "").trim();
 			},
 			async applyToTarget(
-				targetCwd: string,
+				targetCwd: string = defaultTargetCwd,
 			): Promise<{ success: boolean; error?: string; filesChanged?: string[] }> {
 				// Master reviews worker changes before integration.
 				// Generate patch from worktree and apply to target without destructive commands.
@@ -216,6 +244,8 @@ export class WorkspaceManager {
 		// If scope provided, copy only scoped files, otherwise copy repository files (excluding node_modules and .git)
 		const initialStatus = "non-git workspace";
 
+		const defaultTargetCwd = this.baseCwd;
+
 		return {
 			taskId,
 			workspacePath,
@@ -251,7 +281,7 @@ export class WorkspaceManager {
 				return files.join("\n");
 			},
 			async applyToTarget(
-				targetCwd: string,
+				targetCwd: string = defaultTargetCwd,
 			): Promise<{ success: boolean; error?: string; filesChanged?: string[] }> {
 				const changedFiles: string[] = [];
 				if (existsSync(workspacePath)) {

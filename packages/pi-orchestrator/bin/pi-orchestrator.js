@@ -1,22 +1,23 @@
 #!/usr/bin/env node
-import { handleOrchestratorCommand } from "../src/cli.ts";
+import { handleOrchestratorCommand } from "../src/cli.js";
 
-const rawArgs = process.argv.slice(2);
-const args = rawArgs.length === 0 ? ["worker", "status"] : rawArgs;
-
+const args = process.argv.slice(2);
 const handled = await handleOrchestratorCommand(args);
+
 if (!handled) {
-	console.log(`Pi Antigravity Multi-Agent Orchestrator
+	console.log(`Pi Antigravity Multi-Agent Coding Orchestrator
 
 Usage:
-  pi-orchestrator task "<title>"            Set main task for Antigravity (Master Agent)
-  pi-orchestrator agents                    Show configured agents (Antigravity & Antigravity2)
-  pi-orchestrator workers                   List worker tasks assigned to Antigravity2
-  pi-orchestrator delegate "<description>"  Delegate an isolated task to Antigravity2
-  pi-orchestrator worker status             Show multi-agent real-time dashboard
-  pi-orchestrator worker logs [task_id]     View worker logs
-  pi-orchestrator diff <task_id>            View diff produced by Antigravity2
+  pi-orchestrator                           Open real-time interactive Dashboard
+  pi-orchestrator dashboard                 Open real-time interactive Dashboard
+  pi-orchestrator quotas                    View live 5h/weekly limits & reset timers for all accounts
+  pi-orchestrator security [on|off|<acc>]   Configure Security Auditor agent
+  pi-orchestrator master <account_id>       Switch Master agent account
+  pi-orchestrator task "<objective>"        Set main coding objective
+  pi-orchestrator delegate "<description>"  Delegate coding subtask to worker pool
+  pi-orchestrator workers                   List all delegated tasks and security verdicts
+  pi-orchestrator diff <task_id>            View diff produced by worker in worktree
   pi-orchestrator approve <task_id>         Approve and merge worker changes into master
-  pi-orchestrator reject <task_id>          Reject worker changes and clean workspace
+  pi-orchestrator reject <task_id> [reason] Reject worker changes and clean workspace
 `);
 }

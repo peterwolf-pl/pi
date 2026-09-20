@@ -3,9 +3,13 @@
   "version": "1.0.0",
   "description": "Multi-Agent AI Coding Orchestrator for Pi (Antigravity & Antigravity2)",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
   "bin": {
-    "pi-orchestrator": "./bin/pi-orchestrator.js"
+    "pi-orchestrator": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@earendil-works/* --external:chalk --external:yaml && esbuild bin/pi-orchestrator.js --bundle --platform=node --format=esm --outfile=dist/bin.js --external:@earendil-works/* --external:chalk --external:yaml && chmod +x dist/bin.js",
+    "test": "vitest run"
   },
   "keywords": [
     "pi-package",
@@ -16,7 +20,7 @@
   ],
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./dist/index.js"
     ]
   },
   "peerDependencies": {

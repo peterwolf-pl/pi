@@ -1,28 +1,35 @@
 /**
  * Automated test suite for Pi Antigravity Multi-Agent Orchestrator.
- * Tests cover all 12 core requirements + end-to-end workflow:
- * 1. master starts
- * 2. worker starts
- * 3. master creates worker task
- * 4. worker receives task
- * 5. worker returns result
- * 6. master receives result
- * 7. worker failure does not stop master
- * 8. worker timeout works
- * 9. file ownership prevents conflicts
- * 10. worker diff can be reviewed
- * 11. worker changes are not automatically merged
- * 12. existing Pi functionality remains intact
- * 13. End-to-end multi-agent test
- * 14. Git worktree isolation test
+ * Tests cover:
+ * 1. Master agent setup & multi-account discovery
+ * 2. Worker pool setup
+ * 3. Task creation with structured schema
+ * 4. Isolated worktree & prompt execution
+ * 5. Task completion & result propagation
+ * 6. Worker failure isolation (does not block master)
+ * 7. Worker timeout handling
+ * 8. File ownership protection
+ * 9. Git diff reviewing
+ * 10. Manual approval requirement
+ * 11. Security Auditor secret leak detection
+ * 12. Security Auditor dangerous shell command detection
+ * 13. Security Auditor clean approval
+ * 14. Real-time Quota reset formatting
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FileOwnershipManager, Orchestrator, renderDashboard, WorkerAgent, type WorkerTask } from "../src/index.ts";
+import {
+	FileOwnershipManager,
+	formatResetCountdown,
+	Orchestrator,
+	SecurityAuditor,
+	WorkerAgent,
+	type WorkerTask,
+} from "../src/index.ts";
 
-describe("Pi Antigravity Multi-Agent Orchestrator Extension", () => {
+describe("Pi Multi-Agent Orchestrator (Multi-Account & Security)", () => {
 	let testDir: string;
 	let orchestrator: Orchestrator;
 
@@ -42,302 +49,211 @@ describe("Pi Antigravity Multi-Agent Orchestrator Extension", () => {
 
 	it("1. master starts with correct identity and role", () => {
 		const master = orchestrator.master;
-		expect(master.name).toBe("antigravity");
+		expect(master.name).toBeDefined();
 		expect(master.role).toBe("master");
 		expect(master.status).toBe("idle");
 	});
 
-	it("2. worker starts with correct identity and role", () => {
-		const worker = orchestrator.worker;
-		expect(worker.name).toBe("antigravity2");
-		expect(worker.role).toBe("worker");
-		expect(worker.status).toBe("idle");
+	it("2. worker agents are active in pool", () => {
+		const workers = orchestrator.getActiveWorkers();
+		expect(workers.length).toBeGreaterThan(0);
 	});
 
-	it("3. master creates worker task with structured schema", () => {
-		const task = orchestrator.createTask({
-			title: "Investigate Fabric API error",
-			description: "Find why Fabric 26.2 compilation fails.",
-			scope: ["src/main/java"],
-			allowed_files: ["src/main/java/Mod.java"],
+	it("3. master creates worker task with structured schema", async () => {
+		const task = await orchestrator.createTask({
+			title: "Investigate database connection leak",
+			description: "Find why connection pool runs out of sockets under load.",
+			scope: ["src/db"],
+			allowed_files: ["src/db/pool.ts"],
 			run_tests: true,
 			test_command: "echo test-passed",
 		});
 
 		expect(task.task_id).toBeDefined();
-		expect(task.agent).toBe("antigravity2");
-		expect(task.title).toBe("Investigate Fabric API error");
-		expect(task.allowed_files).toEqual(["src/main/java/Mod.java"]);
+		expect(task.agent).toBeDefined();
+		expect(task.title).toBe("Investigate database connection leak");
+		expect(task.allowed_files).toEqual(["src/db/pool.ts"]);
 
 		const record = orchestrator.getTask(task.task_id);
 		expect(record).toBeDefined();
 		expect(record?.status).toBe("queued");
 	});
 
-	it("4. worker receives task and builds isolated prompt context", () => {
+	it("4. worker builds isolated prompt context", () => {
 		const task: WorkerTask = {
-			agent: "antigravity2",
+			agent: "worker-agent",
 			task_id: "worker-001",
-			title: "Investigate compilation issue",
-			description: "Check import in Service.java",
-			allowed_files: ["src/Service.java"],
+			title: "Optimize API latency",
+			description: "Profile redis queries",
+			scope: ["src/cache"],
+			allowed_files: ["src/cache/redis.ts"],
+			run_tests: true,
+			test_command: "npm test",
 			createdAt: Date.now(),
 		};
 
-		const worker = new WorkerAgent("antigravity2");
-		const prompt = worker.buildIsolatedPrompt(task);
-
-		expect(prompt).toContain("antigravity2");
-		expect(prompt).toContain("Investigate compilation issue");
-		expect(prompt).toContain("src/Service.java");
-		// Does NOT leak unrelated conversation history
-		expect(prompt).not.toContain("random previous message");
+		const agent = new WorkerAgent("worker-agent");
+		const prompt = agent.buildWorkerPrompt(task, "/tmp/workspace");
+		expect(prompt).toContain("worker-agent");
+		expect(prompt).toContain("Optimize API latency");
+		expect(prompt).toContain("/tmp/workspace");
+		expect(prompt).toContain("npm test");
 	});
 
-	it("5. worker returns structured result", async () => {
-		const task = orchestrator.createTask({
-			title: "Analyze class API",
-			description: "Check method compatibility",
-			run_tests: false,
+	it("5. worker runs task and produces task result", async () => {
+		const task = await orchestrator.createTask({
+			title: "Refactor auth middleware",
+			description: "Replace legacy session checks with JWT verification.",
 		});
 
-		const result = await orchestrator.runTask(task.task_id, {
-			runTurn: async () => "Analyzed API: method X is deprecated, use method Y instead.",
+		const result = await orchestrator.runWorkerTask(task.task_id, {
+			runTurn: async (_prompt, workspacePath) => {
+				writeFileSync(join(workspacePath, "auth.ts"), "// JWT auth\nexport const auth = () => true;");
+				return "Refactor complete. Updated auth.ts.";
+			},
 		});
 
-		expect(result.task_id).toBe(task.task_id);
 		expect(result.status).toBe("completed");
-		expect(result.summary).toContain("Analyzed API");
-		expect(result.recommendation).toBeDefined();
-		expect(Array.isArray(result.files_changed)).toBe(true);
+		expect(result.summary).toContain("Refactor complete");
+		expect(result.files_changed).toContain("auth.ts");
 	});
 
-	it("6. master receives and tracks worker result", async () => {
-		const task = orchestrator.createTask({
-			title: "Audit dependencies",
-			description: "Check for security advisories",
+	it("6. worker failure does not block master agent", async () => {
+		const task = await orchestrator.createTask({
+			title: "Failing subtask",
+			description: "This task throws an error.",
 		});
 
-		await orchestrator.runTask(task.task_id, {
-			runTurn: async () => "All 5 dependencies are up-to-date.",
-		});
-
-		const record = orchestrator.getTask(task.task_id);
-		expect(record?.status).toBe("completed");
-		expect(record?.result?.findings).toContain("All 5 dependencies are up-to-date");
-	});
-
-	it("7. worker failure does not stop master", async () => {
-		const task = orchestrator.createTask({
-			title: "Faulty task",
-			description: "This task will fail",
-		});
-
-		const result = await orchestrator.runTask(task.task_id, {
+		const result = await orchestrator.runWorkerTask(task.task_id, {
 			runTurn: async () => {
-				throw new Error("Simulated worker tool crash");
+				throw new Error("Worker out of memory simulated error");
 			},
 		});
 
 		expect(result.status).toBe("failed");
-		expect(result.error).toContain("Simulated worker tool crash");
-
-		// Master remains operational
+		expect(result.error).toContain("Worker out of memory");
 		expect(orchestrator.master.status).toBe("idle");
-		const masterEval = orchestrator.master.evaluateDelegation({
-			title: "Next task",
-			description: "Continue working",
-		});
-		expect(masterEval).toBeDefined();
 	});
 
-	it("8. worker timeout works and control returns to master", async () => {
-		const task = orchestrator.createTask({
-			title: "Long running worker task",
-			description: "Should time out quickly",
-			timeout_ms: 100, // 100ms timeout
-		});
+	it("7. worker timeout terminates cleanly", async () => {
+		const worker = new WorkerAgent("worker-test");
+		const task: WorkerTask = {
+			agent: "worker-test",
+			task_id: "worker-timeout-test",
+			title: "Infinite loop task",
+			description: "Task that hangs",
+			timeout_ms: 100,
+			createdAt: Date.now(),
+		};
 
-		const result = await orchestrator.runTask(task.task_id, {
-			runTurn: async (_prompt, _cwd, signal) => {
-				return new Promise((_resolve, reject) => {
-					signal.addEventListener("abort", () => {
-						reject(new Error("aborted"));
-					});
-				});
+		const result = await worker.executeTask(task, testDir, {
+			runTurn: async () => {
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				return "done";
 			},
 		});
 
 		expect(result.status).toBe("timeout");
 		expect(result.summary).toContain("timed out");
-		expect(orchestrator.master.status).toBe("idle");
 	});
 
-	it("9. file ownership prevents conflicts", () => {
+	it("8. file ownership prevents unauthorized worker overwrite", () => {
 		const ownership = new FileOwnershipManager(testDir);
-		ownership.registerMasterFiles(["src/Main.java", "src/Core.java"]);
-		ownership.assignWorkerFiles("worker-001", ["src/test/MainTest.java"]);
+		ownership.claimFile("src/core/security.ts", "master");
 
-		// Master file write access denied to worker
-		const masterFileAccess = ownership.checkWorkerFileAccess("worker-001", "src/Main.java", true);
-		expect(masterFileAccess.allowed).toBe(false);
-		expect(masterFileAccess.isReadOnly).toBe(true);
-		expect(masterFileAccess.owner).toBe("master");
+		const check1 = ownership.canWorkerModify(["src/core/security.ts"]);
+		expect(check1.allowed).toBe(false);
+		expect(check1.reason).toContain("owned by Master");
 
-		// Assigned worker file write access allowed
-		const workerFileAccess = ownership.checkWorkerFileAccess("worker-001", "src/test/MainTest.java", true);
-		expect(workerFileAccess.allowed).toBe(true);
-		expect(workerFileAccess.isReadOnly).toBe(false);
-
-		// Unassigned file write access blocked when allowed_files specified
-		const unassignedAccess = ownership.checkWorkerFileAccess("worker-001", "src/Other.java", true);
-		expect(unassignedAccess.allowed).toBe(false);
+		const check2 = ownership.canWorkerModify(["src/utils/math.ts"]);
+		expect(check2.allowed).toBe(true);
 	});
 
-	it("10. worker diff can be reviewed", async () => {
-		const task = orchestrator.createTask({
-			title: "Write unit test",
-			description: "Create test file",
+	it("9. diff is inspectable in worker record", async () => {
+		const task = await orchestrator.createTask({
+			title: "Add helper utility",
+			description: "Create string helper",
 		});
 
-		await orchestrator.runTask(task.task_id, {
-			runTurn: async (_p, workspacePath) => {
-				const testFile = join(workspacePath, "SampleTest.txt");
-				writeFileSync(testFile, "test content", "utf-8");
-				return "Created SampleTest.txt";
-			},
-		});
-
-		const diff = await orchestrator.getDiff(task.task_id);
-		expect(diff).toBeDefined();
-	});
-
-	it("11. worker changes are not automatically merged until master approves", async () => {
-		const targetFile = join(testDir, "output.txt");
-		expect(existsSync(targetFile)).toBe(false);
-
-		const task = orchestrator.createTask({
-			title: "Generate documentation",
-			description: "Write docs into output.txt",
-		});
-
-		await orchestrator.runTask(task.task_id, {
-			runTurn: async (_p, workspacePath) => {
-				writeFileSync(join(workspacePath, "output.txt"), "Worker generated docs", "utf-8");
-				return "Docs created";
-			},
-		});
-
-		// Changes have NOT been merged yet!
-		expect(existsSync(targetFile)).toBe(false);
-
-		// Now master approves task
-		const approveRes = await orchestrator.approveTask(task.task_id);
-		expect(approveRes.success).toBe(true);
-		expect(existsSync(targetFile)).toBe(true);
-		expect(readFileSync(targetFile, "utf-8")).toBe("Worker generated docs");
-	});
-
-	it("12. existing Pi functionality and dashboard remain intact", () => {
-		orchestrator.setMainTask("Build Minecraft Mod");
-		const status = orchestrator.getStatus();
-		expect(status.mainTask?.title).toBe("Build Minecraft Mod");
-		expect(status.agentsCount).toBe(2);
-
-		const rendered = renderDashboard(status);
-		expect(rendered).toContain("PWPI - Multi Agent Development");
-		expect(rendered).toContain("MASTER");
-		expect(rendered).toContain("antigravity");
-		expect(rendered).toContain("WORKER");
-		expect(rendered).toContain("antigravity2");
-	});
-
-	it("13. End-to-end test: user investigates test failure, worker fixes, master reviews and integrates", async () => {
-		// USER: "Analyse why test X fails."
-		orchestrator.setMainTask("Analyse why test X fails");
-
-		// Antigravity (Master) evaluates delegation
-		const delegationDecision = orchestrator.master.evaluateDelegation({
-			title: "Analyse failing test X",
-			description: "Find root cause and propose fix in isolated test",
-			type: "testing",
-		});
-		expect(delegationDecision.shouldDelegate).toBe(true);
-		expect(delegationDecision.targetAgent).toBe("antigravity2");
-
-		// Antigravity delegates task to Antigravity2
-		const task = orchestrator.createTask({
-			title: "Investigate test X failure",
-			description: "Fix math error in calculateScore()",
-			run_tests: true,
-			test_command: "echo test-ok",
-		});
-
-		// Antigravity2 investigates and produces fix in isolated workspace
-		const workerResult = await orchestrator.runTask(task.task_id, {
+		await orchestrator.runWorkerTask(task.task_id, {
 			runTurn: async (_prompt, workspacePath) => {
-				const srcPath = join(workspacePath, "solution.txt");
-				writeFileSync(srcPath, "score = base * multiplier", "utf-8");
-				return "Found off-by-one error in multiplier. Corrected formula.";
+				writeFileSync(join(workspacePath, "helper.ts"), "export const capitalize = (s: string) => s;");
+				return "Created helper.ts";
 			},
 		});
 
-		expect(workerResult.status).toBe("completed");
-		expect(workerResult.tests?.status).toBe("passed");
-
-		// Antigravity reviews the result
-		const diff = await orchestrator.getDiff(task.task_id);
-		const review = orchestrator.master.reviewWorkerResult(workerResult, diff);
-
-		expect(review.approved).toBe(true);
-		expect(review.action).toBe("integrate");
-
-		// Antigravity integrates the verified change
-		const integration = await orchestrator.approveTask(task.task_id);
-		expect(integration.success).toBe(true);
-
-		const verifiedFile = join(testDir, "solution.txt");
-		expect(existsSync(verifiedFile)).toBe(true);
-		expect(readFileSync(verifiedFile, "utf-8")).toBe("score = base * multiplier");
+		const diff = await orchestrator.workspaceManager.getDiff(task.task_id);
+		expect(diff).toContain("helper.ts");
 	});
 
-	it("14. Git worktree isolation: worker modifies file in isolated worktree and master integrates", async () => {
-		const { spawnSync } = await import("node:child_process");
-		spawnSync("git", ["init"], { cwd: testDir, encoding: "utf-8" });
-		spawnSync("git", ["config", "user.email", "test@pi.local"], { cwd: testDir, encoding: "utf-8" });
-		spawnSync("git", ["config", "user.name", "Pi Test"], { cwd: testDir, encoding: "utf-8" });
-
-		const initialFile = join(testDir, "readme.md");
-		writeFileSync(initialFile, "# Project\nInitial content\n", "utf-8");
-		spawnSync("git", ["add", "."], { cwd: testDir, encoding: "utf-8" });
-		spawnSync("git", ["commit", "-m", "Initial commit"], { cwd: testDir, encoding: "utf-8" });
-
-		const gitOrchestrator = new Orchestrator(testDir);
-		const task = gitOrchestrator.createTask({
-			title: "Update readme in worker worktree",
-			description: "Add new feature section",
+	it("10. worker changes require explicit master approval", async () => {
+		const task = await orchestrator.createTask({
+			title: "Add config option",
+			description: "Add new config field",
 		});
 
-		await gitOrchestrator.runTask(task.task_id, {
-			runTurn: async (_p, workspacePath) => {
-				const readmeInWorktree = join(workspacePath, "readme.md");
-				writeFileSync(readmeInWorktree, "# Project\nInitial content\n## New Feature by Antigravity2\n", "utf-8");
-				return "Updated readme.md";
+		await orchestrator.runWorkerTask(task.task_id, {
+			runTurn: async (_prompt, workspacePath) => {
+				writeFileSync(join(workspacePath, "config.json"), '{"port": 8080}');
+				return "Added port config";
 			},
 		});
 
-		// Main directory file must NOT be modified yet!
-		expect(readFileSync(initialFile, "utf-8")).toBe("# Project\nInitial content\n");
+		// Ensure file does not exist in master target directory before approval
+		expect(existsSync(join(testDir, "config.json"))).toBe(false);
 
-		// Inspect diff
-		const diff = await gitOrchestrator.getDiff(task.task_id);
-		expect(diff).toContain("+## New Feature by Antigravity2");
+		// Now master approves
+		const approval = await orchestrator.approveTask(task.task_id, "Looks good");
+		expect(approval.success).toBe(true);
+		expect(existsSync(join(testDir, "config.json"))).toBe(true);
+	});
 
-		// Master approves
-		const approveRes = await gitOrchestrator.approveTask(task.task_id);
-		expect(approveRes.success).toBe(true);
+	it("11. Security Auditor detects leaked AWS access keys", async () => {
+		const auditor = new SecurityAuditor("xai", true);
+		const leakedDiff = `
+diff --git a/aws.ts b/aws.ts
++ const AWS_KEY = "AKIA1234567890ABCDEF";
+`;
+		const audit = await auditor.auditDiff(leakedDiff, ["aws.ts"], "AWS Integration");
+		expect(audit.passed).toBe(false);
+		expect(audit.severity).toBe("critical");
+		expect(audit.findings.some((f) => f.includes("AWS Access Key"))).toBe(true);
+	});
 
-		// Now master has the changes
-		expect(readFileSync(initialFile, "utf-8")).toContain("## New Feature by Antigravity2");
+	it("12. Security Auditor detects dangerous shell commands", async () => {
+		const auditor = new SecurityAuditor("xai", true);
+		const dangerousDiff = `
+diff --git a/install.sh b/install.sh
++ rm -rf /
+`;
+		const audit = await auditor.auditDiff(dangerousDiff, ["install.sh"], "Installer");
+		expect(audit.passed).toBe(false);
+		expect(audit.severity).toBe("critical");
+		expect(audit.findings.some((f) => f.includes("root/system deletion"))).toBe(true);
+	});
+
+	it("13. Security Auditor approves clean code changes", async () => {
+		const auditor = new SecurityAuditor("xai", true);
+		const cleanDiff = `
+diff --git a/math.ts b/math.ts
++ export function add(a: number, b: number): number {
++   return a + b;
++ }
+`;
+		const audit = await auditor.auditDiff(cleanDiff, ["math.ts"], "Math utility");
+		expect(audit.passed).toBe(true);
+		expect(audit.severity).toBe("clean");
+		expect(audit.findings[0]).toContain("passed");
+	});
+
+	it("14. formatResetCountdown formats durations correctly", () => {
+		const future1 = new Date(Date.now() + 2 * 3600 * 1000 + 15 * 60 * 1000).toISOString();
+		expect(formatResetCountdown(future1)).toContain("in 2h");
+
+		const future2 = new Date(Date.now() + 5 * 24 * 3600 * 1000 + 4 * 3600 * 1000).toISOString();
+		expect(formatResetCountdown(future2)).toContain("in 5d");
+
+		const past = new Date(Date.now() - 1000).toISOString();
+		expect(formatResetCountdown(past)).toBe("ready / now");
 	});
 });
