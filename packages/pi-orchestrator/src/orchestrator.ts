@@ -24,6 +24,7 @@ import type {
 	OrchestratorStatus,
 	SkillExtractionResult,
 	TaskResult,
+	ThinkingLevel,
 	WorkerTask,
 	WorkerTaskRecord,
 } from "./types.ts";
@@ -203,6 +204,23 @@ export class Orchestrator {
 
 	public getActiveWorkers(): string[] {
 		return [...this.config.activeWorkers];
+	}
+
+	public setAgentModel(role: "master" | "worker" | "auditor", model: string, thinking?: ThinkingLevel): void {
+		if (!this.config.models) {
+			this.config.models = {
+				master: { model: "gemini-3.8-flash", thinking: "high" },
+				worker: { model: "gemini-3.8-flash", thinking: "low" },
+				auditor: { model: "grok-beta", thinking: "off" },
+			};
+		}
+		if (model) {
+			this.config.models[role].model = model;
+		}
+		if (thinking) {
+			this.config.models[role].thinking = thinking;
+		}
+		saveOrchestratorConfig(this.config, this.cwd);
 	}
 
 	private getStateFilePath(): string {
@@ -652,6 +670,11 @@ export class Orchestrator {
 			securityAuditEnabled: this.securityAuditor.isEnabled(),
 			idleWorkEnabled: this.config.idleWork?.autoIdleWork ?? true,
 			skillsCreated: this.skillManager.getSkills(),
+			models: this.config.models || {
+				master: { model: "gemini-3.8-flash", thinking: "high" },
+				worker: { model: "gemini-3.8-flash", thinking: "low" },
+				auditor: { model: "grok-beta", thinking: "off" },
+			},
 		};
 	}
 

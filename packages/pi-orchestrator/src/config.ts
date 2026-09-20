@@ -44,6 +44,20 @@ export function getDefaultConfig(): OrchestratorConfig {
 		securityAuditorEnabled: true,
 		activeWorkers,
 		accounts: accountsMap,
+		models: {
+			master: {
+				model: "gemini-3.8-flash",
+				thinking: "high",
+			},
+			worker: {
+				model: "gemini-3.8-flash",
+				thinking: "low",
+			},
+			auditor: {
+				model: "grok-beta",
+				thinking: "off",
+			},
+		},
 		idleWork: {
 			autoIdleWork: true,
 			extractSkills: true,
@@ -106,6 +120,20 @@ export function loadOrchestratorConfig(cwd: string = process.cwd()): Orchestrato
 					: defaultConfig.securityAuditorEnabled,
 			activeWorkers: Array.isArray(parsed?.activeWorkers) ? parsed.activeWorkers : defaultConfig.activeWorkers,
 			accounts: parsed?.accounts || defaultConfig.accounts,
+			models: {
+				master: {
+					model: parsed?.models?.master?.model || defaultConfig.models.master.model,
+					thinking: parsed?.models?.master?.thinking || defaultConfig.models.master.thinking,
+				},
+				worker: {
+					model: parsed?.models?.worker?.model || defaultConfig.models.worker.model,
+					thinking: parsed?.models?.worker?.thinking || defaultConfig.models.worker.thinking,
+				},
+				auditor: {
+					model: parsed?.models?.auditor?.model || defaultConfig.models.auditor.model,
+					thinking: parsed?.models?.auditor?.thinking || defaultConfig.models.auditor.thinking,
+				},
+			},
 			idleWork: {
 				autoIdleWork: parsed?.idleWork?.autoIdleWork ?? defaultConfig.idleWork.autoIdleWork,
 				extractSkills: parsed?.idleWork?.extractSkills ?? defaultConfig.idleWork.extractSkills,

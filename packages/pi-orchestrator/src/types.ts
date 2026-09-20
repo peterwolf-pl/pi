@@ -149,12 +149,26 @@ export interface IdleWorkConfig {
 	assistSecurityAudit: boolean;
 }
 
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface AgentModelConfig {
+	model: string;
+	thinking: ThinkingLevel;
+}
+
+export interface OrchestratorModelSettings {
+	master: AgentModelConfig;
+	worker: AgentModelConfig;
+	auditor: AgentModelConfig;
+}
+
 export interface OrchestratorConfig {
 	masterAccount: string; // default "antigravity"
 	securityAuditorAccount: string; // default "xai" or "google-antigravity-3"
 	securityAuditorEnabled: boolean; // toggle whether security audit is active
 	activeWorkers: string[]; // which accounts participate as workers
 	accounts: Record<string, AccountConfig>;
+	models: OrchestratorModelSettings;
 	idleWork: IdleWorkConfig;
 	delegation: {
 		enabled: boolean;
@@ -199,6 +213,7 @@ export interface OrchestratorStatus {
 	securityAuditEnabled: boolean;
 	idleWorkEnabled: boolean;
 	skillsCreated: SkillExtractionResult[];
+	models?: OrchestratorModelSettings;
 }
 
 export type OrchestratorEventType =

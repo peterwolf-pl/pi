@@ -202,6 +202,26 @@ export async function runInteractiveDashboard(orchestrator: Orchestrator): Promi
 			return;
 		}
 
+		// O - Configure Model & Thinking
+		if (key === "o" || key === "O") {
+			if (refreshInterval) clearInterval(refreshInterval);
+			const role = (await promptInput("Configure model for (master / worker / auditor):")).toLowerCase();
+			if (role === "master" || role === "worker" || role === "auditor") {
+				const thinking = (
+					await promptInput(`Thinking level for ${role} (off / low / medium / high):`)
+				).toLowerCase();
+				if (thinking) {
+					orchestrator.setAgentModel(role, orchestrator.config.models[role].model, thinking as any);
+					message = chalk.green.bold(`Updated ${role} thinking to: ${thinking.toUpperCase()}`);
+				}
+			}
+			refreshInterval = setInterval(() => {
+				void redraw(false);
+			}, 4000);
+			await redraw(false);
+			return;
+		}
+
 		// T - Set new main coding task
 		if (key === "t" || key === "T") {
 			if (refreshInterval) clearInterval(refreshInterval);

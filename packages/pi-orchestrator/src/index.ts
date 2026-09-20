@@ -4,6 +4,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { getOrchestrator } from "./cli.ts";
 import { renderDashboard } from "./dashboard.ts";
 import { registerOrchestratorProvider } from "./provider.ts";
@@ -71,6 +72,59 @@ export default async function orchestratorExtension(pi: ExtensionAPI): Promise<v
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
 		updateUiIndicators(ctx.ui);
+
+		// Custom Footer: Displays Pi.ORCHESTRATOR [M: high | W: low] in the bottom right corner!
+		ctx.ui.setFooter((tui: any, theme: any, footerData: any) => {
+			const unsub = footerData?.onBranchChange?.(() => tui.requestRender());
+
+			return {
+				dispose: unsub,
+				invalidate() {},
+				render(width: number): string[] {
+					let input = 0,
+						output = 0,
+						cost = 0;
+					try {
+						for (const e of ctx.sessionManager.getBranch()) {
+							if (e.type === "message" && (e.message as any)?.role === "assistant") {
+								const m = e.message as any;
+								if (m.usage) {
+									input += m.usage.input || 0;
+									output += m.usage.output || 0;
+									cost += m.usage.cost?.total || 0;
+								}
+							}
+						}
+					} catch {
+						// ignore
+					}
+
+					const branch = footerData?.getGitBranch?.() || "";
+					const fmt = (n: number) => (n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`);
+
+					const left = theme.fg("dim", `↑${fmt(input)} ↓${fmt(output)} $${cost.toFixed(3)}`);
+					const branchStr = branch ? ` (${branch})` : "";
+
+					// RIGHT SIDE: Display Pi.ORCHESTRATOR with thinking levels instead of single model!
+					const masterCfg = orchestrator.config.models?.master || {
+						model: "gemini-3.8-flash",
+						thinking: "high",
+					};
+					const workerCfg = orchestrator.config.models?.worker || {
+						model: "gemini-3.8-flash",
+						thinking: "low",
+					};
+
+					const right =
+						theme.fg("accent", theme.bold("Pi.ORCHESTRATOR")) +
+						theme.fg("dim", ` [M:${masterCfg.thinking} | W:${workerCfg.thinking}]${branchStr}`);
+
+					const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));
+					return [truncateToWidth(left + pad + right, width)];
+				},
+			};
+		});
+
 		const activeWorkers = orchestrator.getActiveWorkers();
 		const auditorName = orchestrator.securityAuditor.getAuditorAccount();
 		const auditorEnabled = orchestrator.securityAuditor.isEnabled();

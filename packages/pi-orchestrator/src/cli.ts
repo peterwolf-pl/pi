@@ -135,6 +135,34 @@ export async function handleOrchestratorCommand(
 			return true;
 		}
 
+		case "model": {
+			const role = args[1]?.toLowerCase() as "master" | "worker" | "auditor";
+			const model = args[2];
+			const thinking = args[3] as any;
+			if (!role || !orchestrator.config.models?.[role]) {
+				const m = orchestrator.config.models;
+				console.log(chalk.bold("\nOrchestrator Models & Thinking:"));
+				console.log(
+					`  MASTER  : ${chalk.white.bold(m.master.model)} (thinking: ${chalk.yellow.bold(m.master.thinking)})`,
+				);
+				console.log(
+					`  WORKER  : ${chalk.white.bold(m.worker.model)} (thinking: ${chalk.green.bold(m.worker.thinking)})`,
+				);
+				console.log(
+					`  AUDITOR : ${chalk.white.bold(m.auditor.model)} (thinking: ${chalk.dim(m.auditor.thinking)})`,
+				);
+				console.log(`\nUsage: pi-orchestrator model <master|worker|auditor> <model_id> [thinking]`);
+				return true;
+			}
+			orchestrator.setAgentModel(role, model || orchestrator.config.models[role].model, thinking);
+			console.log(
+				chalk.green(
+					`Updated ${role} model to: ${orchestrator.config.models[role].model} (thinking: ${orchestrator.config.models[role].thinking})`,
+				),
+			);
+			return true;
+		}
+
 		case "security": {
 			const sub = args[1]?.toLowerCase();
 			if (sub === "on" || sub === "enable") {

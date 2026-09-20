@@ -189,6 +189,31 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 
 	out.push(separator());
 
+	// MODELS & THINKING BUDGET
+	out.push(line(chalk.bold.underline("MODELS & THINKING CONFIGURATION")));
+	out.push(line(""));
+	const mCfg = status.models?.master || { model: "gemini-3.8-flash", thinking: "high" };
+	const wCfg = status.models?.worker || { model: "gemini-3.8-flash", thinking: "low" };
+	const aCfg = status.models?.auditor || { model: "grok-beta", thinking: "off" };
+
+	out.push(
+		line(
+			`  Master  : ${chalk.bold.white(mCfg.model)} (${chalk.yellow.bold(`thinking: ${mCfg.thinking.toUpperCase()}`)}) - Deep architecture`,
+		),
+	);
+	out.push(
+		line(
+			`  Worker  : ${chalk.bold.white(wCfg.model)} (${chalk.green.bold(`thinking: ${wCfg.thinking.toUpperCase()}`)}) - Fast subtasks`,
+		),
+	);
+	out.push(
+		line(
+			`  Auditor : ${chalk.bold.white(aCfg.model)} (${chalk.dim(`thinking: ${aCfg.thinking.toUpperCase()}`)}) - Rapid scans`,
+		),
+	);
+
+	out.push(separator());
+
 	// GENERAL CODING MAIN TASK
 	out.push(line(chalk.bold.underline("MAIN CODING OBJECTIVE")));
 	out.push(line(""));
@@ -230,9 +255,9 @@ export function renderDashboard(status: OrchestratorStatus, width = 78): string 
 		line(
 			`${chalk.dim("[1-5]")} Worker  ${chalk.dim("[M]")} Master  ${chalk.dim(
 				"[S]",
-			)} Auditor  ${chalk.dim("[A]")} Auto-Idle  ${chalk.dim("[K]")} Skill  ${chalk.dim(
-				"[R]",
-			)} Quota  ${chalk.dim("[Q]")} Exit`,
+			)} Auditor  ${chalk.dim("[O]")} Model  ${chalk.dim("[A]")} Auto-Idle  ${chalk.dim(
+				"[K]",
+			)} Skill  ${chalk.dim("[Q]")} Exit`,
 		),
 	);
 	out.push(bottomBorder());
