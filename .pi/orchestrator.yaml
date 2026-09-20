@@ -35,6 +35,16 @@ accounts:
     label: "4"
     enabled: true
     role: worker
+models:
+  master:
+    model: gemini-3.8-flash
+    thinking: high
+  worker:
+    model: gemini-3.8-flash
+    thinking: low
+  auditor:
+    model: grok-beta
+    thinking: off
 idleWork:
   autoIdleWork: true
   extractSkills: true
